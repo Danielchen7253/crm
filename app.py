@@ -54,8 +54,7 @@ def sb_get_all(table, params=None, page_size=1000, max_rows=50000):
     rows = []
     start = 0
     while start < max_rows:
-        end = start + page_size - 1
-        page = sb_get(table, params, range_header=f"{start}-{end}")
+        page = sb_get(table, params, range_header=f"{start}-{start + page_size - 1}")
         rows.extend(page)
         if len(page) < page_size:
             break
@@ -158,9 +157,7 @@ def find_identity_by_customer(customer_id):
 
 
 def complete_profile(psid, known_profile=None):
-    known_profile = known_profile or {}
-    fetched_profile = get_profile(psid)
-    return {**known_profile, **fetched_profile}
+    return {**(known_profile or {}), **get_profile(psid)}
 
 
 def ensure_customer(psid, profile=None):
@@ -253,32 +250,69 @@ def process_event(event):
     save_message(customer_id, message.get("mid"), direction, message.get("text"), message.get("attachments", []), event, sent_at)
 
 
+def attachment_kind(value, inherited_type=None):
+    mime_type = str(value.get("mime_type") or "").lower()
+    item_type = value.get("type") or inherited_type or "file"
+    if mime_type.startswith("image/") or isinstance(value.get("image_data"), dict):
+        return "image"
+    if mime_type.startswith("audio/"):
+        return "audio"
+    if mime_type.startswith("video/"):
+        return "video"
+    return item_type if item_type in {"image", "audio", "video", "file"} else "file"
+
+
+def first_http_url(*values):
+    for value in values:
+        if isinstance(value, str) and value.startswith("http"):
+            return value
+    return None
+
+
+def best_attachment_url(value, kind):
+    payload = value.get("payload") if isinstance(value.get("payload"), dict) else {}
+    image_data = value.get("image_data") if isinstance(value.get("image_data"), dict) else {}
+    if kind == "image":
+        return first_http_url(
+            image_data.get("animated_gif_url"),
+            image_data.get("raw_gif_image"),
+            image_data.get("url"),
+            image_data.get("animated_webp_url"),
+            image_data.get("raw_webp_image"),
+            value.get("url"),
+            payload.get("url"),
+            image_data.get("preview_url"),
+            value.get("preview_url"),
+            payload.get("preview_url"),
+        )
+    return first_http_url(
+        value.get("file_url"),
+        value.get("url"),
+        payload.get("url"),
+        value.get("src"),
+        payload.get("src"),
+        value.get("preview_url"),
+        payload.get("preview_url"),
+    )
+
+
 def collect_attachment_items(value, inherited_type=None):
     items = []
     if isinstance(value, dict):
-        item_type = value.get("type") or inherited_type or "file"
-        payload = value.get("payload") if isinstance(value.get("payload"), dict) else {}
-        candidate_urls = []
-        for key in ["url", "preview_url", "src"]:
-            if isinstance(value.get(key), str):
-                candidate_urls.append(value[key])
-            if isinstance(payload.get(key), str):
-                candidate_urls.append(payload[key])
-        for url in candidate_urls:
-            if not url.startswith("http"):
-                continue
-            kind = item_type
+        kind = attachment_kind(value, inherited_type)
+        url = best_attachment_url(value, kind)
+        if url:
             lower_url = url.lower()
-            if kind not in {"image", "audio", "video", "file"}:
-                kind = "file"
             if kind == "file":
                 if any(ext in lower_url for ext in [".jpg", ".jpeg", ".png", ".gif", ".webp"]):
                     kind = "image"
-                elif any(ext in lower_url for ext in [".mp3", ".m4a", ".aac", ".wav", ".ogg", ".oga", ".amr", ".mp4"]):
+                elif any(ext in lower_url for ext in [".mp3", ".m4a", ".aac", ".wav", ".ogg", ".oga", ".amr", ".opus", ".mp4"]):
                     kind = "audio"
             items.append({"type": kind, "url": url})
-        for child in value.values():
-            items.extend(collect_attachment_items(child, item_type))
+        skipped_keys = {"payload", "image_data"} if url else set()
+        for key, child in value.items():
+            if key not in skipped_keys:
+                items.extend(collect_attachment_items(child, kind))
     elif isinstance(value, list):
         for item in value:
             items.extend(collect_attachment_items(item, inherited_type))
@@ -312,15 +346,10 @@ def load_dashboard(selected_id):
     )
     if customers and not selected_id:
         selected_id = customers[0]["id"]
-
-    recent_messages = sb_get(
-        "messages",
-        {"select": "customer_id,direction,text,sent_at", "order": "sent_at.desc", "limit": "10000"},
-    )
+    recent_messages = sb_get("messages", {"select": "customer_id,direction,text,sent_at", "order": "sent_at.desc", "limit": "10000"})
     latest = {}
     for message in recent_messages:
         latest.setdefault(message["customer_id"], message)
-
     selected = next((customer for customer in customers if customer["id"] == selected_id), None) if selected_id else None
     messages = []
     if selected:
@@ -361,14 +390,12 @@ def import_conversation(conversation):
 def sync_messenger_conversations_paginated(max_pages=200, page_limit=100, messages_limit=25):
     if not META_PAGE_ID or not META_PAGE_ACCESS_TOKEN:
         raise RuntimeError("META_PAGE_ID and META_PAGE_ACCESS_TOKEN are required.")
-
     fields = f"participants{{id,name,profile_pic}},messages.limit({messages_limit}){{id,message,from,to,created_time,attachments}}"
     page = graph_get(f"{META_PAGE_ID}/conversations", {"fields": fields, "limit": str(page_limit)})
     pages = 0
     conversations_seen = 0
     customers_created = 0
     messages_imported = 0
-
     while page and pages < max_pages:
         pages += 1
         conversations = page.get("data", [])
@@ -379,7 +406,6 @@ def sync_messenger_conversations_paginated(max_pages=200, page_limit=100, messag
             messages_imported += result["messages_imported"]
         next_url = page.get("paging", {}).get("next")
         page = graph_get_url(next_url) if next_url else None
-
     return {
         "pages": pages,
         "conversations_seen": conversations_seen,
@@ -387,6 +413,47 @@ def sync_messenger_conversations_paginated(max_pages=200, page_limit=100, messag
         "messages_imported": messages_imported,
         "stopped_by_max_pages": bool(page),
     }
+
+
+def safe_graph_diagnostic(path, params=None):
+    try:
+        return {"ok": True, "data": graph_get(path, params or {})}
+    except requests.RequestException as error:
+        response = getattr(error, "response", None)
+        detail = None
+        if response is not None:
+            try:
+                detail = response.json()
+            except ValueError:
+                detail = response.text[:500]
+        return {"ok": False, "error": str(error), "detail": detail}
+
+
+@app.get("/admin/meta/diagnostics")
+def meta_diagnostics():
+    page_result = safe_graph_diagnostic(META_PAGE_ID, {"fields": "id,name,category,link"}) if META_PAGE_ID else {"ok": False, "error": "META_PAGE_ID missing"}
+    conversations_result = safe_graph_diagnostic(
+        f"{META_PAGE_ID}/conversations",
+        {"fields": "id,updated_time,participants{id,name}", "limit": "100"},
+    ) if META_PAGE_ID else {"ok": False, "error": "META_PAGE_ID missing"}
+    conversations = conversations_result.get("data", {}) if conversations_result.get("ok") else {}
+    return jsonify(
+        {
+            "ok": True,
+            "configured": {
+                "page_id_present": bool(META_PAGE_ID),
+                "page_token_present": bool(META_PAGE_ACCESS_TOKEN),
+                "graph_api_version": GRAPH_API_VERSION,
+            },
+            "me": safe_graph_diagnostic("me", {"fields": "id,name"}),
+            "page": page_result,
+            "page_conversations": conversations_result,
+            "page_conversations_summary": {
+                "count_returned": len(conversations.get("data", [])) if isinstance(conversations, dict) else 0,
+                "has_next_page": bool(conversations.get("paging", {}).get("next")) if isinstance(conversations, dict) else False,
+            },
+        }
+    )
 
 
 @app.get("/")
