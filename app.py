@@ -1,6 +1,8 @@
 import hashlib
 import hmac
 import os
+import threading
+import time
 from datetime import datetime, timezone
 
 import requests
@@ -15,6 +17,9 @@ META_APP_SECRET = os.getenv("META_APP_SECRET", "")
 META_PAGE_ACCESS_TOKEN = os.getenv("META_PAGE_ACCESS_TOKEN", "")
 META_PAGE_ID = os.getenv("META_PAGE_ID", "")
 GRAPH_API_VERSION = os.getenv("GRAPH_API_VERSION", "v21.0")
+AUTO_SYNC_SECONDS = float(os.getenv("CRM_AUTO_SYNC_SECONDS", "2"))
+AUTO_SYNC_ENABLED = os.getenv("CRM_AUTO_SYNC_ENABLED", "true").lower() != "false"
+AUTO_SYNC_STATE = {"started": False, "last_ok": None, "last_error": None, "runs": 0}
 
 
 def now_iso():
@@ -25,7 +30,7 @@ def is_database_configured():
     return bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
 
 
-def supabase_headers(prefer=None):
+def supabase_headers(prefer=None, range_header=None):
     if not is_database_configured():
         raise RuntimeError("Supabase environment variables are missing.")
     headers = {
@@ -35,6 +40,9 @@ def supabase_headers(prefer=None):
     }
     if prefer:
         headers["Prefer"] = prefer
+    if range_header:
+        headers["Range-Unit"] = "items"
+        headers["Range"] = range_header
     return headers
 
 
@@ -42,6 +50,26 @@ def supabase_get(table, params=None):
     response = requests.get(f"{SUPABASE_URL}/rest/v1/{table}", headers=supabase_headers(), params=params or {}, timeout=20)
     response.raise_for_status()
     return response.json()
+
+
+def supabase_get_all(table, params=None, page_size=1000, max_pages=20):
+    rows = []
+    params = params or {}
+    for page in range(max_pages):
+        start = page * page_size
+        end = start + page_size - 1
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/{table}",
+            headers=supabase_headers(range_header=f"{start}-{end}"),
+            params=params,
+            timeout=20,
+        )
+        response.raise_for_status()
+        chunk = response.json()
+        rows.extend(chunk)
+        if len(chunk) < page_size:
+            break
+    return rows
 
 
 def supabase_post(table, payload, prefer="return=representation"):
@@ -113,9 +141,7 @@ def find_identity_by_customer(customer_id, provider="messenger"):
 def build_display_name(profile, fallback):
     if profile.get("name"):
         return profile["name"]
-    first_name = profile.get("first_name", "")
-    last_name = profile.get("last_name", "")
-    full_name = " ".join(part for part in [first_name, last_name] if part).strip()
+    full_name = " ".join(part for part in [profile.get("first_name", ""), profile.get("last_name", "")] if part).strip()
     return full_name or fallback
 
 
@@ -134,7 +160,7 @@ def profile_payload(profile, display_name=None):
     return payload
 
 
-def ensure_customer_from_messenger(psid, known_profile=None):
+def ensure_customer_from_messenger(psid, known_profile=None, touch=True):
     profile = known_profile or get_messenger_profile(psid)
     if known_profile and not known_profile.get("profile_pic"):
         fetched = get_messenger_profile(psid)
@@ -143,7 +169,8 @@ def ensure_customer_from_messenger(psid, known_profile=None):
     identity = find_identity("messenger", psid)
     if identity:
         payload = profile_payload(profile, display_name)
-        payload["last_seen_at"] = now_iso()
+        if touch:
+            payload["last_seen_at"] = now_iso()
         supabase_patch("customers", payload, {"id": f"eq.{identity['customer_id']}"})
         supabase_patch(
             "customer_identities",
@@ -151,7 +178,6 @@ def ensure_customer_from_messenger(psid, known_profile=None):
             {"provider": "eq.messenger", "provider_user_id": f"eq.{psid}"},
         )
         return identity["customer_id"]
-
     customer = supabase_post(
         "customers",
         {
@@ -177,7 +203,7 @@ def save_message(customer_id, provider_message_id, direction, text, attachments,
     if provider_message_id:
         existing = supabase_get("messages", {"provider": "eq.messenger", "provider_message_id": f"eq.{provider_message_id}", "select": "id", "limit": "1"})
         if existing:
-            return
+            return False
     sent_at = sent_at or now_iso()
     supabase_post(
         "messages",
@@ -194,6 +220,7 @@ def save_message(customer_id, provider_message_id, direction, text, attachments,
         },
     )
     supabase_patch("customers", {"last_seen_at": now_iso(), "last_message_at": sent_at, "updated_at": now_iso()}, {"id": f"eq.{customer_id}"})
+    return True
 
 
 def process_messenger_event(event):
@@ -212,23 +239,41 @@ def process_messenger_event(event):
     save_message(customer_id, message.get("mid"), direction, message.get("text"), message.get("attachments", []), event, sent_at)
 
 
+def sync_messenger_conversations():
+    if not META_PAGE_ID or not META_PAGE_ACCESS_TOKEN:
+        raise RuntimeError("META_PAGE_ID and META_PAGE_ACCESS_TOKEN are required.")
+    imported = 0
+    conversations = graph_get(
+        f"{META_PAGE_ID}/conversations",
+        {"fields": "participants{id,name},messages.limit(10){id,message,from,to,created_time,attachments}", "limit": "100"},
+    )
+    for conversation in conversations.get("data", []):
+        participants = conversation.get("participants", {}).get("data", [])
+        customer_participants = [p for p in participants if p.get("id") != META_PAGE_ID]
+        if not customer_participants:
+            continue
+        participant = customer_participants[0]
+        psid = participant["id"]
+        customer_id = ensure_customer_from_messenger(psid, {"name": participant.get("name")}, touch=False)
+        for message in conversation.get("messages", {}).get("data", []):
+            from_id = message.get("from", {}).get("id")
+            direction = "outbound" if from_id == META_PAGE_ID else "inbound"
+            if save_message(customer_id, message.get("id"), direction, message.get("message"), message.get("attachments", {}).get("data", []), message, message.get("created_time")):
+                imported += 1
+    return imported
+
+
 def load_dashboard_data(selected_customer_id):
-    customers = supabase_get(
+    customers = supabase_get_all(
         "customers",
-        {
-            "select": "id,display_name,source,first_seen_at,last_seen_at,last_message_at,profile_pic_url,tags,locale,timezone,gender,metadata",
-            "order": "last_seen_at.desc",
-            "limit": "100",
-        },
+        {"select": "id,display_name,source,first_seen_at,last_seen_at,last_message_at,profile_pic_url,tags,locale,timezone,gender,metadata", "order": "last_seen_at.desc"},
     )
     if customers and not selected_customer_id:
         selected_customer_id = customers[0]["id"]
-
-    messages = supabase_get("messages", {"select": "customer_id,direction,text,sent_at", "order": "sent_at.desc", "limit": "200"})
+    messages = supabase_get("messages", {"select": "customer_id,direction,text,sent_at", "order": "sent_at.desc", "limit": "5000"})
     latest_by_customer = {}
     for message in messages:
         latest_by_customer.setdefault(message["customer_id"], message)
-
     selected_customer = None
     selected_messages = []
     if selected_customer_id:
@@ -243,6 +288,27 @@ def load_dashboard_data(selected_customer_id):
 
 def redirect_to_customer(customer_id):
     return Response("", status=303, headers={"Location": f"/?customer={customer_id}"})
+
+
+def auto_sync_loop():
+    while True:
+        try:
+            if is_database_configured() and META_PAGE_ID and META_PAGE_ACCESS_TOKEN:
+                sync_messenger_conversations()
+                AUTO_SYNC_STATE["last_ok"] = now_iso()
+                AUTO_SYNC_STATE["last_error"] = None
+                AUTO_SYNC_STATE["runs"] += 1
+        except Exception as error:
+            AUTO_SYNC_STATE["last_error"] = str(error)
+        time.sleep(max(AUTO_SYNC_SECONDS, 1))
+
+
+def start_auto_sync_worker():
+    if AUTO_SYNC_STATE["started"] or not AUTO_SYNC_ENABLED:
+        return
+    AUTO_SYNC_STATE["started"] = True
+    thread = threading.Thread(target=auto_sync_loop, name="messenger-auto-sync", daemon=True)
+    thread.start()
 
 
 @app.get("/")
@@ -262,7 +328,7 @@ def dashboard():
 
 @app.get("/health")
 def health():
-    return jsonify({"ok": True, "database_configured": is_database_configured()})
+    return jsonify({"ok": True, "database_configured": is_database_configured(), "auto_sync": AUTO_SYNC_STATE})
 
 
 @app.get("/webhooks/meta")
@@ -291,49 +357,20 @@ def send_customer_message(customer_id):
     text = request.form.get("text", "").strip()
     if not text:
         return redirect_to_customer(customer_id)
-    if not META_PAGE_ACCESS_TOKEN:
-        return jsonify({"error": "META_PAGE_ACCESS_TOKEN is required."}), 400
     identity = find_identity_by_customer(customer_id)
     if not identity:
         return jsonify({"error": "Messenger identity was not found for this customer."}), 404
-    result = graph_post(
-        "me/messages",
-        {"recipient": {"id": identity["provider_user_id"]}, "messaging_type": "RESPONSE", "message": {"text": text}},
-    )
+    result = graph_post("me/messages", {"recipient": {"id": identity["provider_user_id"]}, "messaging_type": "RESPONSE", "message": {"text": text}})
     save_message(customer_id, result.get("message_id"), "outbound", text, [], result, now_iso())
     return redirect_to_customer(customer_id)
 
 
 @app.post("/admin/import/messenger-conversations")
 def import_messenger_conversations():
-    if not META_PAGE_ID or not META_PAGE_ACCESS_TOKEN:
-        return jsonify({"error": "META_PAGE_ID and META_PAGE_ACCESS_TOKEN are required."}), 400
-    imported = 0
-    conversations = graph_get(
-        f"{META_PAGE_ID}/conversations",
-        {"fields": "participants{id,name},messages.limit(25){id,message,from,to,created_time,attachments}", "limit": "50"},
-    )
-    for conversation in conversations.get("data", []):
-        participants = conversation.get("participants", {}).get("data", [])
-        customer_participants = [p for p in participants if p.get("id") != META_PAGE_ID]
-        if not customer_participants:
-            continue
-        participant = customer_participants[0]
-        psid = participant["id"]
-        customer_id = ensure_customer_from_messenger(psid, {"name": participant.get("name")})
-        for message in conversation.get("messages", {}).get("data", []):
-            from_id = message.get("from", {}).get("id")
-            direction = "outbound" if from_id == META_PAGE_ID else "inbound"
-            save_message(
-                customer_id,
-                message.get("id"),
-                direction,
-                message.get("message"),
-                message.get("attachments", {}).get("data", []),
-                message,
-                message.get("created_time"),
-            )
-            imported += 1
+    try:
+        imported = sync_messenger_conversations()
+    except RuntimeError as error:
+        return jsonify({"error": str(error)}), 400
     return jsonify({"ok": True, "imported_messages": imported})
 
 
@@ -394,7 +431,7 @@ DASHBOARD_TEMPLATE = """
   <header><div class="brand">CRM 客户工作台</div><div class="count">{{ customers|length }} 个客户</div></header>
   <main>
     <section class="list">
-      <div class="list-title">按最近互动时间排列</div>
+      <div class="list-title">按最近互动时间排列，自动同步中</div>
       {% for customer in customers %}
       {% set latest = latest_by_customer.get(customer.id) %}
       <a class="customer {% if customer.id == selected_customer_id %}active{% endif %}" href="/?customer={{ customer.id }}">
@@ -441,16 +478,10 @@ DASHBOARD_TEMPLATE = """
 """
 
 SETUP_TEMPLATE = """
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CRM Setup</title>
-  <style>:root{font-family:Arial,sans-serif;background:#f6f7f9;color:#17202a}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}main{max-width:720px;width:100%;background:white;border:1px solid #d8dee8;border-radius:8px;padding:28px}code{background:#eef2f7;padding:2px 5px;border-radius:4px}li{margin:8px 0}</style>
-</head>
-<body><main><h1>CRM is online</h1><p>The app is deployed. To start syncing Messenger customers, finish the database and Meta configuration in Render.</p><ol><li>Run <code>schema.sql</code> in Supabase.</li><li>Add Supabase and Messenger environment variables in Render.</li><li>Use <code>/webhooks/meta</code> as the Meta callback path.</li></ol><p>Health check: <code>/health</code></p></main></body>
-</html>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CRM Setup</title><style>:root{font-family:Arial,sans-serif;background:#f6f7f9;color:#17202a}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}main{max-width:720px;width:100%;background:white;border:1px solid #d8dee8;border-radius:8px;padding:28px}code{background:#eef2f7;padding:2px 5px;border-radius:4px}li{margin:8px 0}</style></head><body><main><h1>CRM is online</h1><p>The app is deployed. Finish database and Meta configuration in Render.</p><ol><li>Run <code>schema.sql</code> in Supabase.</li><li>Add Supabase and Messenger environment variables in Render.</li><li>Use <code>/webhooks/meta</code> as the Meta callback path.</li></ol><p>Health check: <code>/health</code></p></main></body></html>
 """
+
+start_auto_sync_worker()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=True)
