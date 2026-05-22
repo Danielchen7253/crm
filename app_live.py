@@ -32,12 +32,36 @@ REALTIME_REFRESH_SCRIPT = """
   window.__crmRealtimeInstalled = true;
   const originalTitle = document.title || 'CRM 客户工作台';
   let reloading = false;
+  let latestSignature = null;
+  let checking = false;
 
   function refreshFromNewMessage() {
     if (reloading) return;
     reloading = true;
     document.title = '有新消息 - ' + originalTitle.replace(/^有新消息 - /, '');
     window.location.reload();
+  }
+
+  async function checkLatestSignature() {
+    if (checking || reloading) return;
+    checking = true;
+    try {
+      const response = await fetch('/api/latest-message-signature', { cache: 'no-store' });
+      if (!response.ok) return;
+      const data = await response.json();
+      const nextSignature = data.signature || 'empty';
+      if (latestSignature === null) {
+        latestSignature = nextSignature;
+        return;
+      }
+      if (nextSignature !== latestSignature) {
+        refreshFromNewMessage();
+      }
+    } catch (error) {
+      // Keep trying quietly.
+    } finally {
+      checking = false;
+    }
   }
 
   async function startRealtime() {
@@ -63,6 +87,8 @@ REALTIME_REFRESH_SCRIPT = """
   }
 
   startRealtime();
+  setInterval(checkLatestSignature, 1000);
+  setTimeout(checkLatestSignature, 300);
 })();
 </script>
 """
@@ -70,6 +96,32 @@ REALTIME_REFRESH_SCRIPT = """
 
 def graph_url(path):
     return f"https://graph.facebook.com/{GRAPH_API_VERSION}/{path.lstrip('/')}"
+
+
+def supabase_headers():
+    return {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json",
+        "Cache-Control": "no-cache",
+    }
+
+
+def latest_message_signature():
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        return "not_configured"
+    response = requests.get(
+        f"{SUPABASE_URL}/rest/v1/messages",
+        headers=supabase_headers(),
+        params={"select": "id,provider_message_id,sent_at,created_at", "order": "created_at.desc", "limit": "1"},
+        timeout=10,
+    )
+    response.raise_for_status()
+    rows = response.json()
+    if not rows:
+        return "empty"
+    row = rows[0]
+    return "|".join(str(row.get(key) or "") for key in ["id", "provider_message_id", "sent_at", "created_at"])
 
 
 def broadcast_new_message():
@@ -100,6 +152,19 @@ def realtime_config():
     response = jsonify({"ok": True, "url": SUPABASE_URL, "key": SUPABASE_PUBLISHABLE_KEY})
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return response
+
+
+@app.get("/api/latest-message-signature")
+def latest_message_status():
+    try:
+        payload = {"ok": True, "signature": latest_message_signature()}
+        status = 200
+    except Exception as error:
+        payload = {"ok": False, "error": str(error)}
+        status = 500
+    response = jsonify(payload)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response, status
 
 
 @app.get("/events")
