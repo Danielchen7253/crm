@@ -15,6 +15,64 @@ META_APP_SECRET = os.getenv("META_APP_SECRET", "")
 META_PAGE_ACCESS_TOKEN = os.getenv("META_PAGE_ACCESS_TOKEN", "")
 META_PAGE_ID = os.getenv("META_PAGE_ID", "")
 GRAPH_API_VERSION = os.getenv("GRAPH_API_VERSION", "v21.0")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+FIXED_REPLY_RULES = [
+    {
+        "category": "shipping",
+        "confidence": 0.98,
+        "keywords": [
+            "ship",
+            "shipping",
+            "delivery",
+            "deliver",
+            "send",
+            "arrive",
+            "when",
+            "\u591a\u4e45",
+            "\u53d1\u8d27",
+            "\u9001\u8d27",
+            "\u914d\u9001",
+            "\u4ec0\u4e48\u65f6\u5019",
+        ],
+        "reply": "Orders paid before 3 PM ship the same day. Orders paid after 3 PM ship the next business day. Holidays may delay shipping.",
+    },
+    {
+        "category": "pickup_address",
+        "confidence": 0.98,
+        "keywords": [
+            "pickup",
+            "pick up",
+            "address",
+            "location",
+            "where",
+            "\u63d0\u8d27",
+            "\u81ea\u53d6",
+            "\u5730\u5740",
+            "\u54ea\u91cc",
+            "\u4f4d\u7f6e",
+        ],
+        "reply": "Pickup address: 755 International Blvd, Houston, TX 77024.",
+    },
+    {
+        "category": "model_photo_request",
+        "confidence": 0.82,
+        "keywords": [
+            "model",
+            "part number",
+            "size",
+            "measure",
+            "photo",
+            "picture",
+            "\u578b\u53f7",
+            "\u5c3a\u5bf8",
+            "\u7167\u7247",
+            "\u56fe\u7247",
+        ],
+        "reply": "Please send the appliance model number and a clear photo of the old gasket or model label. I will check the correct replacement for you.",
+    },
+]
 
 
 def now_iso():
@@ -336,6 +394,145 @@ def decorate_message(message):
     return message
 
 
+def fixed_reply_for(text):
+    normalized = (text or "").lower()
+    matches = []
+    for rule in FIXED_REPLY_RULES:
+        if any(keyword.lower() in normalized for keyword in rule["keywords"]):
+            matches.append(rule)
+    if not matches:
+        return None
+
+    draft_text = "\n\n".join(rule["reply"] for rule in matches)
+    return {
+        "source": "rules",
+        "category": "+".join(rule["category"] for rule in matches),
+        "confidence": max(rule["confidence"] for rule in matches),
+        "draft_text": draft_text,
+    }
+
+
+def recent_conversation_text(messages, limit=12):
+    lines = []
+    for message in messages[-limit:]:
+        speaker = "Customer" if message.get("direction") == "inbound" else "You"
+        body = message.get("text") or "[attachment]"
+        lines.append(f"{speaker}: {body}")
+    return "\n".join(lines)
+
+
+def parse_openai_text(payload):
+    if payload.get("output_text"):
+        return payload["output_text"].strip()
+    parts = []
+    for item in payload.get("output", []):
+        for content in item.get("content", []):
+            text = content.get("text")
+            if text:
+                parts.append(text)
+    return "\n".join(parts).strip()
+
+
+def openai_reply_for(customer, messages):
+    if not OPENAI_API_KEY:
+        return None
+
+    prompt = {
+        "customer_name": customer.get("display_name"),
+        "conversation": recent_conversation_text(messages),
+        "business_facts": [
+            "Orders paid before 3 PM ship the same day.",
+            "Orders paid after 3 PM ship the next business day.",
+            "Holidays may delay shipping.",
+            "Pickup address: 755 International Blvd, Houston, TX 77024.",
+        ],
+    }
+    response = requests.post(
+        "https://api.openai.com/v1/responses",
+        headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
+        json={
+            "model": OPENAI_MODEL,
+            "input": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You draft short Messenger replies for a refrigerator gasket parts seller. "
+                        "Be practical, polite, direct, and sales-oriented. "
+                        "Do not promise inventory, price, shipping, or compatibility unless the conversation already confirms it. "
+                        "Return only the reply text."
+                    ),
+                },
+                {"role": "user", "content": str(prompt)},
+            ],
+        },
+        timeout=25,
+    )
+    response.raise_for_status()
+    text = parse_openai_text(response.json())
+    if not text:
+        return None
+    return {"source": "openai", "category": "ai_draft", "confidence": 0.68, "draft_text": text}
+
+
+def fallback_reply_for(message):
+    if message.get("has_attachments"):
+        text = "Thanks, I received it. I will check it and get back to you shortly."
+    else:
+        text = "Thanks for your message. Please send the appliance model number and a clear photo if you have it, and I will check the correct gasket for you."
+    return {"source": "fallback", "category": "draft_only", "confidence": 0.35, "draft_text": text}
+
+
+def build_ai_reply(customer, messages, inbound_message):
+    rule_reply = fixed_reply_for(inbound_message.get("text"))
+    if rule_reply:
+        return rule_reply
+    try:
+        ai_reply = openai_reply_for(customer, messages)
+        if ai_reply:
+            return ai_reply
+    except requests.RequestException:
+        pass
+    return fallback_reply_for(inbound_message)
+
+
+def load_ai_draft(customer, messages):
+    if not customer or not messages:
+        return None
+    latest_message = messages[-1]
+    if latest_message.get("direction") != "inbound" or not latest_message.get("id"):
+        return None
+
+    existing = sb_get(
+        "ai_reply_drafts",
+        {"message_id": f"eq.{latest_message['id']}", "select": "*", "limit": "1"},
+    )
+    if existing:
+        return existing[0]
+
+    draft = build_ai_reply(customer, messages, latest_message)
+    payload = {
+        "customer_id": customer["id"],
+        "message_id": latest_message["id"],
+        "source": draft["source"],
+        "category": draft["category"],
+        "confidence": draft["confidence"],
+        "prompt": {
+            "customer_name": customer.get("display_name"),
+            "latest_message_text": latest_message.get("text"),
+            "openai_model": OPENAI_MODEL if OPENAI_API_KEY else None,
+        },
+        "draft_text": draft["draft_text"],
+    }
+    try:
+        return sb_post("ai_reply_drafts", payload)[0]
+    except requests.RequestException:
+        existing = sb_get(
+            "ai_reply_drafts",
+            {"message_id": f"eq.{latest_message['id']}", "select": "*", "limit": "1"},
+        )
+        return existing[0] if existing else None
+
+
 def load_dashboard(selected_id):
     customers = sb_get_all(
         "customers",
@@ -357,7 +554,7 @@ def load_dashboard(selected_id):
             "messages",
             {
                 "customer_id": f"eq.{selected_id}",
-                "select": "direction,text,message_type,attachments,sent_at",
+                "select": "id,direction,text,message_type,attachments,sent_at",
                 "order": "sent_at.desc",
                 "limit": "500",
             },
@@ -461,6 +658,7 @@ def dashboard():
     if not database_ready():
         return "CRM is online, but database is not configured yet."
     customers, latest, selected, messages, selected_id = load_dashboard(request.args.get("customer"))
+    ai_draft = load_ai_draft(selected, messages)
     return render_template_string(
         TEMPLATE,
         customers=customers,
@@ -468,6 +666,7 @@ def dashboard():
         selected_customer=selected,
         selected_messages=messages,
         selected_customer_id=selected_id,
+        ai_draft=ai_draft,
     )
 
 
@@ -499,6 +698,7 @@ def receive_webhook():
 @app.post("/customers/<customer_id>/messages")
 def send_customer_message(customer_id):
     text = request.form.get("text", "").strip()
+    ai_draft_id = request.form.get("ai_draft_id", "").strip()
     identity = find_identity_by_customer(customer_id)
     if text and identity:
         result = graph_post(
@@ -506,6 +706,12 @@ def send_customer_message(customer_id):
             {"recipient": {"id": identity["provider_user_id"]}, "messaging_type": "RESPONSE", "message": {"text": text}},
         )
         save_message(customer_id, result.get("message_id"), "outbound", text, [], result, now_iso())
+        if ai_draft_id:
+            sb_patch(
+                "ai_reply_drafts",
+                {"final_text": text, "status": "sent", "updated_at": now_iso()},
+                {"id": f"eq.{ai_draft_id}"},
+            )
     return redirect(f"/?customer={customer_id}", code=303)
 
 
@@ -529,7 +735,7 @@ TEMPLATE = """
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CRM 客户工作台</title>
+  <title>CRM \u5ba2\u6237\u5de5\u4f5c\u53f0</title>
   <style>
     :root { font-family: Arial, "Microsoft YaHei", sans-serif; color: #17202a; background: #f4f6f8; }
     * { box-sizing: border-box; }
@@ -563,7 +769,11 @@ TEMPLATE = """
     .attachment-file { display: inline-flex; align-items: center; min-height: 34px; border: 1px solid #c7d7d2; border-radius: 8px; color: #17634f; background: #f7fbfa; padding: 7px 10px; font-size: 13px; text-decoration: none; word-break: break-all; }
     .time { color: #6a7682; font-size: 11px; margin-top: 6px; }
     .reply { display: grid; grid-template-columns: minmax(0, 1fr) 108px; gap: 12px; align-items: stretch; background: #fff; border-top: 1px solid #d8dee8; padding: 16px 24px; }
-    textarea { width: 100%; min-height: 78px; max-height: 180px; resize: vertical; border: 1px solid #cfd7e2; border-radius: 8px; padding: 12px 13px; font: inherit; line-height: 1.4; }
+    .reply-body { min-width: 0; display: grid; gap: 8px; }
+    .ai-draft { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: #3e4b57; font-size: 12px; }
+    .ai-badge { border: 1px solid #c7d7d2; background: #eef7f4; color: #17634f; border-radius: 999px; padding: 4px 9px; font-weight: 700; }
+    .ai-note { color: #6a7682; }
+    textarea { width: 100%; min-height: 104px; max-height: 220px; resize: vertical; border: 1px solid #cfd7e2; border-radius: 8px; padding: 12px 13px; font: inherit; line-height: 1.4; }
     button { border: 0; border-radius: 8px; background: #1f8a70; color: white; font-weight: 700; cursor: pointer; font-size: 15px; }
     button:hover { background: #176f5a; }
     .empty { margin: 24px; background: #fff; border: 1px solid #d8dee8; border-radius: 8px; padding: 22px; }
@@ -582,14 +792,14 @@ TEMPLATE = """
 <body>
   <main class="app">
     <aside class="sidebar">
-      <div class="sidebar-head">客户 {{ customers|length }}</div>
+      <div class="sidebar-head">\u5ba2\u6237 {{ customers|length }}</div>
       {% for customer in customers %}
-      <a class="customer {% if customer.id == selected_customer_id %}active{% endif %}" href="/?customer={{ customer.id }}" title="{{ customer.display_name or '未命名客户' }}">
+      <a class="customer {% if customer.id == selected_customer_id %}active{% endif %}" href="/?customer={{ customer.id }}" title="{{ customer.display_name or '\u672a\u547d\u540d\u5ba2\u6237' }}">
         <div class="avatar">{% if customer.profile_pic_url %}<img src="{{ customer.profile_pic_url }}" alt="">{% else %}{{ (customer.display_name or 'C')[:1] }}{% endif %}</div>
-        <div class="customer-name">{{ customer.display_name or '未命名客户' }}</div>
+        <div class="customer-name">{{ customer.display_name or '\u672a\u547d\u540d\u5ba2\u6237' }}</div>
       </a>
       {% else %}
-      <div class="empty">还没有客户</div>
+      <div class="empty">\u8fd8\u6ca1\u6709\u5ba2\u6237</div>
       {% endfor %}
     </aside>
     <section class="work">
@@ -598,13 +808,13 @@ TEMPLATE = """
         <div class="profile-main">
           <div class="avatar large">{% if selected_customer.profile_pic_url %}<img src="{{ selected_customer.profile_pic_url }}" alt="">{% else %}{{ (selected_customer.display_name or 'C')[:1] }}{% endif %}</div>
           <div>
-            <h1>{{ selected_customer.display_name or '未命名客户' }}</h1>
+            <h1>{{ selected_customer.display_name or '\u672a\u547d\u540d\u5ba2\u6237' }}</h1>
             <div class="pill-row">
               <span class="pill tag">{{ selected_customer.source }}</span>
-              <span class="pill">第一次联系 {{ selected_customer.first_seen_at or '-' }}</span>
-              <span class="pill">最近互动 {{ selected_customer.last_seen_at or '-' }}</span>
-              <span class="pill">最后消息 {{ selected_customer.last_message_at or '-' }}</span>
-              <span class="pill">语言 {{ selected_customer.locale or '-' }}</span>
+              <span class="pill">\u7b2c\u4e00\u6b21\u8054\u7cfb {{ selected_customer.first_seen_at or '-' }}</span>
+              <span class="pill">\u6700\u8fd1\u4e92\u52a8 {{ selected_customer.last_seen_at or '-' }}</span>
+              <span class="pill">\u6700\u540e\u6d88\u606f {{ selected_customer.last_message_at or '-' }}</span>
+              <span class="pill">\u8bed\u8a00 {{ selected_customer.locale or '-' }}</span>
               {% for tag in selected_customer.tags %}<span class="pill tag">{{ tag }}</span>{% endfor %}
             </div>
           </div>
@@ -618,30 +828,40 @@ TEMPLATE = """
             {% if message.image_attachments or message.audio_attachments or message.file_attachments %}
             <div class="attachment-list">
               {% for item in message.image_attachments %}
-              <a href="{{ item.url }}" target="_blank" rel="noopener"><img class="attachment-image" src="{{ item.url }}" alt="客户发送的图片" loading="lazy"></a>
+              <a href="{{ item.url }}" target="_blank" rel="noopener"><img class="attachment-image" src="{{ item.url }}" alt="\u5ba2\u6237\u53d1\u9001\u7684\u56fe\u7247" loading="lazy"></a>
               {% endfor %}
               {% for item in message.audio_attachments %}
               <audio class="attachment-audio" controls preload="metadata" src="{{ item.url }}"></audio>
               {% endfor %}
               {% for item in message.file_attachments %}
-              <a class="attachment-file" href="{{ item.url }}" target="_blank" rel="noopener">打开附件</a>
+              <a class="attachment-file" href="{{ item.url }}" target="_blank" rel="noopener">\u6253\u5f00\u9644\u4ef6</a>
               {% endfor %}
             </div>
             {% endif %}
-            {% if not message.text and not message.has_attachments %}<div>[附件或系统消息]</div>{% endif %}
-            <div class="time">{{ '客户发来' if message.direction == 'inbound' else '我们回复' }} · {{ message.sent_at }}</div>
+            {% if not message.text and not message.has_attachments %}<div>[\u9644\u4ef6\u6216\u7cfb\u7edf\u6d88\u606f]</div>{% endif %}
+            <div class="time">{{ '\u5ba2\u6237\u53d1\u6765' if message.direction == 'inbound' else '\u6211\u4eec\u56de\u590d' }} \xb7 {{ message.sent_at }}</div>
           </div>
           {% else %}
-          <div class="empty">这个客户还没有可显示的聊天记录。</div>
+          <div class="empty">\u8fd9\u4e2a\u5ba2\u6237\u8fd8\u6ca1\u6709\u53ef\u663e\u793a\u7684\u804a\u5929\u8bb0\u5f55\u3002</div>
           {% endfor %}
         </div>
       </section>
       <form class="reply" method="post" action="/customers/{{ selected_customer.id }}/messages">
-        <textarea name="text" placeholder="输入要发给客户的消息" required autofocus></textarea>
-        <button type="submit">发送</button>
+        <div class="reply-body">
+          {% if ai_draft %}
+          <div class="ai-draft">
+            <span class="ai-badge">AI\u5efa\u8bae</span>
+            <span>{{ ai_draft.category }}</span>
+            <span class="ai-note">\u7f6e\u4fe1\u5ea6 {{ '%.0f'|format((ai_draft.confidence or 0) * 100) }}%\uff0c\u53d1\u9001\u524d\u53ef\u4fee\u6539</span>
+          </div>
+          <input type="hidden" name="ai_draft_id" value="{{ ai_draft.id }}">
+          {% endif %}
+          <textarea name="text" placeholder="\u8f93\u5165\u8981\u53d1\u7ed9\u5ba2\u6237\u7684\u6d88\u606f" required autofocus>{{ ai_draft.draft_text if ai_draft else '' }}</textarea>
+        </div>
+        <button type="submit">\u53d1\u9001</button>
       </form>
       {% else %}
-      <div class="empty">请选择客户</div>
+      <div class="empty">\u8bf7\u9009\u62e9\u5ba2\u6237</div>
       {% endif %}
     </section>
   </main>
