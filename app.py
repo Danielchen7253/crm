@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import os
 from datetime import datetime, timezone
+from urllib.parse import urlencode
 
 import requests
 from flask import Flask, Response, abort, jsonify, redirect, render_template_string, request
@@ -40,35 +41,73 @@ def sb_headers(prefer=None, range_header=None):
 
 
 def sb_get(table, params=None, range_header=None):
-    r = requests.get(f"{SUPABASE_URL}/rest/v1/{table}", headers=sb_headers(range_header=range_header), params=params or {}, timeout=20)
-    r.raise_for_status()
-    return r.json()
+    response = requests.get(
+        f"{SUPABASE_URL}/rest/v1/{table}",
+        headers=sb_headers(range_header=range_header),
+        params=params or {},
+        timeout=20,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def sb_get_all(table, params=None, page_size=1000, max_rows=50000):
+    rows = []
+    start = 0
+    while start < max_rows:
+        end = start + page_size - 1
+        page = sb_get(table, params, range_header=f"{start}-{end}")
+        rows.extend(page)
+        if len(page) < page_size:
+            break
+        start += page_size
+    return rows
 
 
 def sb_post(table, payload):
-    r = requests.post(f"{SUPABASE_URL}/rest/v1/{table}", headers=sb_headers("return=representation"), json=payload, timeout=20)
-    r.raise_for_status()
-    return r.json()
+    response = requests.post(
+        f"{SUPABASE_URL}/rest/v1/{table}",
+        headers=sb_headers("return=representation"),
+        json=payload,
+        timeout=20,
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 def sb_patch(table, payload, params):
-    r = requests.patch(f"{SUPABASE_URL}/rest/v1/{table}", headers=sb_headers("return=representation"), params=params, json=payload, timeout=20)
-    r.raise_for_status()
-    return r.json()
+    response = requests.patch(
+        f"{SUPABASE_URL}/rest/v1/{table}",
+        headers=sb_headers("return=representation"),
+        params=params,
+        json=payload,
+        timeout=20,
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 def graph_get(path, params=None):
     params = params or {}
     params["access_token"] = META_PAGE_ACCESS_TOKEN
-    r = requests.get(f"https://graph.facebook.com/{GRAPH_API_VERSION}/{path.lstrip('/')}", params=params, timeout=20)
-    r.raise_for_status()
-    return r.json()
+    response = requests.get(
+        f"https://graph.facebook.com/{GRAPH_API_VERSION}/{path.lstrip('/')}",
+        params=params,
+        timeout=20,
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 def graph_post(path, payload):
-    r = requests.post(f"https://graph.facebook.com/{GRAPH_API_VERSION}/{path.lstrip('/')}", params={"access_token": META_PAGE_ACCESS_TOKEN}, json=payload, timeout=20)
-    r.raise_for_status()
-    return r.json()
+    response = requests.post(
+        f"https://graph.facebook.com/{GRAPH_API_VERSION}/{path.lstrip('/')}",
+        params={"access_token": META_PAGE_ACCESS_TOKEN},
+        json=payload,
+        timeout=20,
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 def verify_meta_signature(raw_body):
@@ -82,6 +121,8 @@ def verify_meta_signature(raw_body):
 
 
 def get_profile(psid):
+    if not META_PAGE_ACCESS_TOKEN:
+        return {}
     try:
         return graph_get(psid, {"fields": "first_name,last_name,name,profile_pic,locale,timezone,gender"})
     except requests.RequestException:
@@ -89,22 +130,36 @@ def get_profile(psid):
 
 
 def display_name(profile, fallback):
-    name = profile.get("name") or " ".join(part for part in [profile.get("first_name", ""), profile.get("last_name", "")] if part).strip()
+    name = profile.get("name") or " ".join(
+        part for part in [profile.get("first_name", ""), profile.get("last_name", "")] if part
+    ).strip()
     return name or fallback
 
 
 def find_identity(psid):
-    rows = sb_get("customer_identities", {"provider": "eq.messenger", "provider_user_id": f"eq.{psid}", "select": "customer_id", "limit": "1"})
+    rows = sb_get(
+        "customer_identities",
+        {"provider": "eq.messenger", "provider_user_id": f"eq.{psid}", "select": "customer_id", "limit": "1"},
+    )
     return rows[0] if rows else None
 
 
 def find_identity_by_customer(customer_id):
-    rows = sb_get("customer_identities", {"customer_id": f"eq.{customer_id}", "provider": "eq.messenger", "select": "provider_user_id", "limit": "1"})
+    rows = sb_get(
+        "customer_identities",
+        {"customer_id": f"eq.{customer_id}", "provider": "eq.messenger", "select": "provider_user_id", "limit": "1"},
+    )
     return rows[0] if rows else None
 
 
+def complete_profile(psid, known_profile=None):
+    known_profile = known_profile or {}
+    fetched_profile = get_profile(psid)
+    return {**known_profile, **fetched_profile}
+
+
 def ensure_customer(psid, profile=None):
-    profile = profile or get_profile(psid)
+    profile = complete_profile(psid, profile)
     name = display_name(profile, f"Messenger {psid[-6:]}")
     identity = find_identity(psid)
     profile_payload = {"display_name": name, "updated_at": now_iso()}
@@ -116,24 +171,68 @@ def ensure_customer(psid, profile=None):
         profile_payload["timezone"] = str(profile["timezone"])
     if profile.get("gender"):
         profile_payload["gender"] = profile["gender"]
+
     if identity:
         customer_id = identity["customer_id"]
         sb_patch("customers", {**profile_payload, "last_seen_at": now_iso()}, {"id": f"eq.{customer_id}"})
-        sb_patch("customer_identities", {"display_name": name, "raw_profile": profile, "updated_at": now_iso()}, {"provider": "eq.messenger", "provider_user_id": f"eq.{psid}"})
+        sb_patch(
+            "customer_identities",
+            {"display_name": name, "raw_profile": profile, "updated_at": now_iso()},
+            {"provider": "eq.messenger", "provider_user_id": f"eq.{psid}"},
+        )
         return customer_id
-    customer = sb_post("customers", {**profile_payload, "source": "messenger", "first_seen_at": now_iso(), "last_seen_at": now_iso(), "metadata": {"messenger_psid": psid}})[0]
-    sb_post("customer_identities", {"customer_id": customer["id"], "provider": "messenger", "provider_user_id": psid, "display_name": name, "raw_profile": profile})
+
+    customer = sb_post(
+        "customers",
+        {
+            **profile_payload,
+            "source": "messenger",
+            "first_seen_at": now_iso(),
+            "last_seen_at": now_iso(),
+            "metadata": {"messenger_psid": psid},
+        },
+    )[0]
+    sb_post(
+        "customer_identities",
+        {
+            "customer_id": customer["id"],
+            "provider": "messenger",
+            "provider_user_id": psid,
+            "display_name": name,
+            "raw_profile": profile,
+        },
+    )
     return customer["id"]
 
 
 def save_message(customer_id, message_id, direction, text, attachments, raw, sent_at=None):
     if message_id:
-        existing = sb_get("messages", {"provider": "eq.messenger", "provider_message_id": f"eq.{message_id}", "select": "id", "limit": "1"})
+        existing = sb_get(
+            "messages",
+            {"provider": "eq.messenger", "provider_message_id": f"eq.{message_id}", "select": "id", "limit": "1"},
+        )
         if existing:
             return False
     sent_at = sent_at or now_iso()
-    sb_post("messages", {"customer_id": customer_id, "provider": "messenger", "provider_message_id": message_id, "direction": direction, "message_type": "attachment" if attachments else "text", "text": text, "attachments": attachments or [], "raw_event": raw, "sent_at": sent_at})
-    sb_patch("customers", {"last_seen_at": now_iso(), "last_message_at": sent_at, "updated_at": now_iso()}, {"id": f"eq.{customer_id}"})
+    sb_post(
+        "messages",
+        {
+            "customer_id": customer_id,
+            "provider": "messenger",
+            "provider_message_id": message_id,
+            "direction": direction,
+            "message_type": "attachment" if attachments else "text",
+            "text": text,
+            "attachments": attachments or [],
+            "raw_event": raw,
+            "sent_at": sent_at,
+        },
+    )
+    sb_patch(
+        "customers",
+        {"last_seen_at": now_iso(), "last_message_at": sent_at, "updated_at": now_iso()},
+        {"id": f"eq.{customer_id}"},
+    )
     return True
 
 
@@ -149,18 +248,58 @@ def process_event(event):
     save_message(customer_id, message.get("mid"), direction, message.get("text"), message.get("attachments", []), event, sent_at)
 
 
+def collect_attachment_urls(value):
+    urls = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key in {"url", "preview_url", "src"} and isinstance(child, str) and child.startswith("http"):
+                urls.append(child)
+            else:
+                urls.extend(collect_attachment_urls(child))
+    elif isinstance(value, list):
+        for item in value:
+            urls.extend(collect_attachment_urls(item))
+    return list(dict.fromkeys(urls))
+
+
+def decorate_message(message):
+    attachments = message.get("attachments") or []
+    message["attachment_urls"] = collect_attachment_urls(attachments)
+    return message
+
+
 def load_dashboard(selected_id):
-    customers = sb_get("customers", {"select": "id,display_name,source,first_seen_at,last_seen_at,last_message_at,profile_pic_url,tags,locale,timezone,gender,metadata", "order": "last_seen_at.desc"}, range_header="0-999")
+    customers = sb_get_all(
+        "customers",
+        {
+            "select": "id,display_name,source,first_seen_at,last_seen_at,last_message_at,profile_pic_url,tags,locale,timezone,gender,metadata",
+            "order": "last_seen_at.desc",
+        },
+    )
     if customers and not selected_id:
         selected_id = customers[0]["id"]
-    recent_messages = sb_get("messages", {"select": "customer_id,direction,text,sent_at", "order": "sent_at.desc", "limit": "5000"})
+
+    recent_messages = sb_get(
+        "messages",
+        {"select": "customer_id,direction,text,sent_at", "order": "sent_at.desc", "limit": "10000"},
+    )
     latest = {}
     for message in recent_messages:
         latest.setdefault(message["customer_id"], message)
+
     selected = next((customer for customer in customers if customer["id"] == selected_id), None) if selected_id else None
     messages = []
     if selected:
-        messages = sb_get("messages", {"customer_id": f"eq.{selected_id}", "select": "direction,text,message_type,attachments,sent_at", "order": "sent_at.asc", "limit": "200"})
+        newest_messages = sb_get(
+            "messages",
+            {
+                "customer_id": f"eq.{selected_id}",
+                "select": "direction,text,message_type,attachments,sent_at",
+                "order": "sent_at.desc",
+                "limit": "500",
+            },
+        )
+        messages = [decorate_message(message) for message in reversed(newest_messages)]
     return customers, latest, selected, messages, selected_id
 
 
@@ -169,7 +308,14 @@ def dashboard():
     if not database_ready():
         return "CRM is online, but database is not configured yet."
     customers, latest, selected, messages, selected_id = load_dashboard(request.args.get("customer"))
-    return render_template_string(TEMPLATE, customers=customers, latest_by_customer=latest, selected_customer=selected, selected_messages=messages, selected_customer_id=selected_id)
+    return render_template_string(
+        TEMPLATE,
+        customers=customers,
+        latest_by_customer=latest,
+        selected_customer=selected,
+        selected_messages=messages,
+        selected_customer_id=selected_id,
+    )
 
 
 @app.get("/health")
@@ -202,14 +348,20 @@ def send_customer_message(customer_id):
     text = request.form.get("text", "").strip()
     identity = find_identity_by_customer(customer_id)
     if text and identity:
-        result = graph_post("me/messages", {"recipient": {"id": identity["provider_user_id"]}, "messaging_type": "RESPONSE", "message": {"text": text}})
+        result = graph_post(
+            "me/messages",
+            {"recipient": {"id": identity["provider_user_id"]}, "messaging_type": "RESPONSE", "message": {"text": text}},
+        )
         save_message(customer_id, result.get("message_id"), "outbound", text, [], result, now_iso())
     return redirect(f"/?customer={customer_id}", code=303)
 
 
 @app.post("/admin/import/messenger-conversations")
 def import_messenger_conversations():
-    conversations = graph_get(f"{META_PAGE_ID}/conversations", {"fields": "participants{id,name},messages.limit(10){id,message,from,to,created_time,attachments}", "limit": "100"})
+    conversations = graph_get(
+        f"{META_PAGE_ID}/conversations",
+        {"fields": "participants{id,name},messages.limit(10){id,message,from,to,created_time,attachments}", "limit": "100"},
+    )
     imported = 0
     for conversation in conversations.get("data", []):
         people = [p for p in conversation.get("participants", {}).get("data", []) if p.get("id") != META_PAGE_ID]
@@ -218,7 +370,15 @@ def import_messenger_conversations():
         customer_id = ensure_customer(people[0]["id"], {"name": people[0].get("name")})
         for message in conversation.get("messages", {}).get("data", []):
             direction = "outbound" if message.get("from", {}).get("id") == META_PAGE_ID else "inbound"
-            if save_message(customer_id, message.get("id"), direction, message.get("message"), message.get("attachments", {}).get("data", []), message, message.get("created_time")):
+            if save_message(
+                customer_id,
+                message.get("id"),
+                direction,
+                message.get("message"),
+                message.get("attachments", {}).get("data", []),
+                message,
+                message.get("created_time"),
+            ):
                 imported += 1
     return jsonify({"ok": True, "imported_messages": imported})
 
@@ -256,6 +416,10 @@ TEMPLATE = """
     .message { max-width: 78%; padding: 11px 13px; border: 1px solid #d8dee8; border-radius: 8px; background: #fff; line-height: 1.45; font-size: 14px; overflow-wrap: anywhere; }
     .message.outbound { align-self: flex-end; background: #eaf2ff; border-color: #c9dcff; }
     .message.inbound { align-self: flex-start; }
+    .message-text { white-space: pre-wrap; }
+    .attachment-list { display: grid; gap: 8px; margin-top: 8px; }
+    .attachment-image { display: block; max-width: min(360px, 100%); max-height: 420px; border-radius: 8px; border: 1px solid #d8dee8; object-fit: contain; background: #f8fafb; }
+    .attachment-link { color: #17634f; font-size: 13px; word-break: break-all; }
     .time { color: #6a7682; font-size: 11px; margin-top: 6px; }
     .reply { display: grid; grid-template-columns: minmax(0, 1fr) 108px; gap: 12px; align-items: stretch; background: #fff; border-top: 1px solid #d8dee8; padding: 16px 24px; }
     textarea { width: 100%; min-height: 78px; max-height: 180px; resize: vertical; border: 1px solid #cfd7e2; border-radius: 8px; padding: 12px 13px; font: inherit; line-height: 1.4; }
@@ -305,11 +469,22 @@ TEMPLATE = """
           </div>
         </div>
       </header>
-      <section class="chat">
+      <section class="chat" id="chat-panel">
         <div class="messages">
           {% for message in selected_messages %}
           <div class="message {{ message.direction }}">
-            <div>{{ message.text if message.text else '[附件或系统消息]' }}</div>
+            {% if message.text %}<div class="message-text">{{ message.text }}</div>{% endif %}
+            {% if message.attachment_urls %}
+            <div class="attachment-list">
+              {% for url in message.attachment_urls %}
+              <a href="{{ url }}" target="_blank" rel="noopener">
+                <img class="attachment-image" src="{{ url }}" alt="客户发送的图片" loading="lazy" onerror="this.style.display='none'; this.parentElement.querySelector('.attachment-link').style.display='inline';">
+                <span class="attachment-link" style="display:none;">打开附件</span>
+              </a>
+              {% endfor %}
+            </div>
+            {% endif %}
+            {% if not message.text and not message.attachment_urls %}<div>[附件或系统消息]</div>{% endif %}
             <div class="time">{{ '客户发来' if message.direction == 'inbound' else '我们回复' }} · {{ message.sent_at }}</div>
           </div>
           {% else %}
@@ -326,6 +501,19 @@ TEMPLATE = """
       {% endif %}
     </section>
   </main>
+  <script>
+    (function () {
+      const chat = document.getElementById('chat-panel');
+      if (!chat) return;
+      function scrollToLatest() { chat.scrollTop = chat.scrollHeight; }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', scrollToLatest, { once: true });
+      } else {
+        scrollToLatest();
+      }
+      window.addEventListener('load', scrollToLatest, { once: true });
+    })();
+  </script>
 </body>
 </html>
 """
