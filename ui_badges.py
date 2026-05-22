@@ -7,9 +7,10 @@ BADGE_CSS = (
     ".customer-info{min-width:0;display:grid;gap:5px}"
     ".source-line{display:flex;align-items:center;gap:6px;min-width:0}"
     ".source-logo{display:inline-flex;align-items:center;justify-content:center;flex:none;"
-    "width:24px;height:18px;border-radius:999px;color:#fff;font-size:10px;font-weight:800;line-height:1}"
-    ".source-messenger{background:#0866ff}"
-    ".source-whatsapp{background:#25d366;color:#0b351f}"
+    "width:22px;height:22px;border-radius:50%;overflow:hidden;background:#fff;border:1px solid #d8dee8}"
+    ".source-logo img{width:100%;height:100%;object-fit:contain;display:block}"
+    ".source-messenger{border-color:#cfe1ff}"
+    ".source-whatsapp{border-color:#b7ebc6}"
     ".source-other{background:#6b7280}"
 )
 
@@ -30,7 +31,7 @@ CUSTOMER_ROW_NEW = (
     '<div class="source-line">'
     '<span class="source-logo {% if customer.source == \'whatsapp\' %}source-whatsapp{% elif customer.source == \'messenger\' %}source-messenger{% else %}source-other{% endif %}" '
     'title="{{ customer.source }}">'
-    "{% if customer.source == 'whatsapp' %}WA{% elif customer.source == 'messenger' %}M{% else %}{{ (customer.source or '?')[:2]|upper }}{% endif %}"
+    "{% if customer.source == 'whatsapp' %}<img src=\"https://upload.wikimedia.org/wikipedia/commons/5/5e/WhatsApp_icon.png\" alt=\"WhatsApp\">{% elif customer.source == 'messenger' %}<img src=\"https://upload.wikimedia.org/wikipedia/commons/6/63/Facebook_Messenger_logo_2025.svg\" alt=\"Messenger\">{% else %}{{ (customer.source or '?')[:2]|upper }}{% endif %}"
     "</span>"
     '<span class="rule-meta">{{ customer.source }}</span>'
     "</div>"
