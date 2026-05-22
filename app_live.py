@@ -29,22 +29,56 @@ EVENT_REFRESH_SCRIPT = """
   if (window.__crmEventRefreshInstalled) return;
   window.__crmEventRefreshInstalled = true;
   const originalTitle = document.title || 'CRM 客户工作台';
+  let currentVersion = null;
+  let reloading = false;
+  let checking = false;
 
-  function markNewMessage() {
+  function refreshFromNewMessage() {
+    if (reloading) return;
+    reloading = true;
     document.title = '有新消息 - ' + originalTitle.replace(/^有新消息 - /, '');
     window.location.reload();
   }
 
-  function connect() {
+  async function checkEventVersion() {
+    if (checking || reloading) return;
+    checking = true;
+    try {
+      const response = await fetch('/api/events/status', { cache: 'no-store' });
+      if (!response.ok) return;
+      const data = await response.json();
+      const nextVersion = data && data.event_state ? data.event_state.version : 0;
+      if (currentVersion === null) {
+        currentVersion = nextVersion;
+        return;
+      }
+      if (nextVersion > currentVersion) {
+        refreshFromNewMessage();
+      }
+    } catch (error) {
+      // Keep trying quietly.
+    } finally {
+      checking = false;
+    }
+  }
+
+  function connectEventStream() {
+    if (!window.EventSource) return;
     const events = new EventSource('/events');
-    events.addEventListener('new_message', markNewMessage);
+    events.addEventListener('new_message', function (event) {
+      const nextVersion = Number(event.data || 0);
+      if (currentVersion === null) currentVersion = nextVersion - 1;
+      if (nextVersion > currentVersion) refreshFromNewMessage();
+    });
     events.onerror = function () {
       events.close();
-      setTimeout(connect, 2000);
+      setTimeout(connectEventStream, 1500);
     };
   }
 
-  if (window.EventSource) connect();
+  connectEventStream();
+  setInterval(checkEventVersion, 1000);
+  setTimeout(checkEventVersion, 300);
 })();
 </script>
 """
@@ -106,7 +140,9 @@ def crm_events():
 def event_status():
     with CLIENTS_LOCK:
         client_count = len(CLIENTS)
-    return jsonify({"ok": True, "event_state": EVENT_STATE, "connected_clients": client_count})
+    response = jsonify({"ok": True, "event_state": EVENT_STATE, "connected_clients": client_count})
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
 
 
 @app.after_request
