@@ -16,6 +16,7 @@ META_PAGE_ID = os.getenv("META_PAGE_ID", "")
 META_PAGE_ACCESS_TOKEN = os.getenv("META_PAGE_ACCESS_TOKEN", "")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_PUBLISHABLE_KEY = os.getenv("SUPABASE_PUBLISHABLE_KEY", "sb_publishable_tEfal3LHiG1MxRVn1uDutA_Mcub7Bg4")
 MESSENGER_FIELDS = "messages,message_echoes,messaging_postbacks,message_deliveries,message_reads"
 
 CLIENTS = set()
@@ -23,15 +24,14 @@ CLIENTS_LOCK = threading.Lock()
 EVENT_STATE = {"version": 0, "last_event": None}
 ORIGINAL_SAVE_MESSAGE = crm_module.save_message
 
-EVENT_REFRESH_SCRIPT = """
+REALTIME_REFRESH_SCRIPT = """
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 (function () {
-  if (window.__crmEventRefreshInstalled) return;
-  window.__crmEventRefreshInstalled = true;
+  if (window.__crmRealtimeInstalled) return;
+  window.__crmRealtimeInstalled = true;
   const originalTitle = document.title || 'CRM 客户工作台';
-  let currentVersion = null;
   let reloading = false;
-  let checking = false;
 
   function refreshFromNewMessage() {
     if (reloading) return;
@@ -40,45 +40,29 @@ EVENT_REFRESH_SCRIPT = """
     window.location.reload();
   }
 
-  async function checkEventVersion() {
-    if (checking || reloading) return;
-    checking = true;
+  async function startRealtime() {
     try {
-      const response = await fetch('/api/events/status', { cache: 'no-store' });
-      if (!response.ok) return;
-      const data = await response.json();
-      const nextVersion = data && data.event_state ? data.event_state.version : 0;
-      if (currentVersion === null) {
-        currentVersion = nextVersion;
-        return;
-      }
-      if (nextVersion > currentVersion) {
-        refreshFromNewMessage();
-      }
+      const configResponse = await fetch('/api/realtime-config', { cache: 'no-store' });
+      if (!configResponse.ok) return;
+      const config = await configResponse.json();
+      if (!config.url || !config.key || !window.supabase) return;
+
+      const client = window.supabase.createClient(config.url, config.key, {
+        realtime: { params: { eventsPerSecond: 10 } }
+      });
+
+      client
+        .channel('crm-messages-realtime')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, refreshFromNewMessage)
+        .subscribe(function (status) {
+          window.__crmRealtimeStatus = status;
+        });
     } catch (error) {
-      // Keep trying quietly.
-    } finally {
-      checking = false;
+      window.__crmRealtimeError = String(error && error.message ? error.message : error);
     }
   }
 
-  function connectEventStream() {
-    if (!window.EventSource) return;
-    const events = new EventSource('/events');
-    events.addEventListener('new_message', function (event) {
-      const nextVersion = Number(event.data || 0);
-      if (currentVersion === null) currentVersion = nextVersion - 1;
-      if (nextVersion > currentVersion) refreshFromNewMessage();
-    });
-    events.onerror = function () {
-      events.close();
-      setTimeout(connectEventStream, 1500);
-    };
-  }
-
-  connectEventStream();
-  setInterval(checkEventVersion, 1000);
-  setTimeout(checkEventVersion, 300);
+  startRealtime();
 })();
 </script>
 """
@@ -109,6 +93,13 @@ def save_message_and_notify(*args, **kwargs):
 
 
 crm_module.save_message = save_message_and_notify
+
+
+@app.get("/api/realtime-config")
+def realtime_config():
+    response = jsonify({"ok": True, "url": SUPABASE_URL, "key": SUPABASE_PUBLISHABLE_KEY})
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
 
 
 @app.get("/events")
@@ -146,24 +137,26 @@ def event_status():
 
 
 @app.after_request
-def inject_event_refresh(response):
+def inject_realtime_refresh(response):
     if request.method != "GET" or request.path != "/":
         return response
     content_type = response.headers.get("Content-Type", "")
     if "text/html" not in content_type.lower():
         return response
     body = response.get_data(as_text=True)
-    if "__crmEventRefreshInstalled" in body:
+    if "__crmRealtimeInstalled" in body:
         return response
-    if "__crmAutoRefreshInstalled" in body:
-        start = body.find("<script>\n(function () {\n  if (window.__crmAutoRefreshInstalled)")
-        end = body.find("</script>", start)
-        if start != -1 and end != -1:
-            body = body[:start] + body[end + len("</script>"):]
+    for marker in ["__crmEventRefreshInstalled", "__crmAutoRefreshInstalled"]:
+        if marker in body:
+            marker_index = body.find(marker)
+            start = body.rfind("<script", 0, marker_index)
+            end = body.find("</script>", marker_index)
+            if start != -1 and end != -1:
+                body = body[:start] + body[end + len("</script>"):]
     if "</body>" in body:
-        body = body.replace("</body>", EVENT_REFRESH_SCRIPT + "</body>")
+        body = body.replace("</body>", REALTIME_REFRESH_SCRIPT + "</body>")
     else:
-        body += EVENT_REFRESH_SCRIPT
+        body += REALTIME_REFRESH_SCRIPT
     response.set_data(body)
     response.headers["Content-Length"] = str(len(response.get_data()))
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
