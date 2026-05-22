@@ -426,7 +426,7 @@ def safe_graph_diagnostic(path, params=None):
                 detail = response.json()
             except ValueError:
                 detail = response.text[:500]
-        return {"ok": False, "error": str(error), "detail": detail}
+        return {"ok": False, "error": str(error).replace(META_PAGE_ACCESS_TOKEN, "[redacted]"), "detail": detail}
 
 
 @app.get("/admin/meta/diagnostics")
