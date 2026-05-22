@@ -190,7 +190,7 @@ def sync_latest_messenger():
         people = [p for p in conversation.get("participants", {}).get("data", []) if p.get("id") != META_PAGE_ID]
         if not people:
             continue
-        customer_id = crm_module.ensure_customer(people[0]["id"], people[0])
+        customer_id, _ = crm_module.ensure_customer(people[0]["id"], people[0])
         for message in conversation.get("messages", {}).get("data", []):
             direction = "outbound" if message.get("from", {}).get("id") == META_PAGE_ID else "inbound"
             saved = crm_module.save_message(
