@@ -18,17 +18,15 @@ TARGET_CSS = (
     "white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
 )
 
-CUSTOMER_ROW_OLD = (
+CUSTOMER_ROW_PREFIX = (
     '<div class="avatar">{% if customer.profile_pic_url %}<img src="{{ customer.profile_pic_url }}" '
     'alt="">{% else %}{{ (customer.display_name or \'C\')[:1] }}{% endif %}</div>'
-    '<div class="customer-name">{{ customer.display_name or \'\\u672a\\u547d\\u540d\\u5ba2\\u6237\' }}</div>'
 )
 
 CUSTOMER_ROW_NEW = (
-    '<div class="avatar">{% if customer.profile_pic_url %}<img src="{{ customer.profile_pic_url }}" '
-    'alt="">{% else %}{{ (customer.display_name or \'C\')[:1] }}{% endif %}</div>'
-    '<div class="customer-info">'
-    '<div class="customer-name">{{ customer.display_name or \'\\u672a\\u547d\\u540d\\u5ba2\\u6237\' }}</div>'
+    CUSTOMER_ROW_PREFIX
+    + '<div class="customer-info">'
+    '<div class="customer-name">{{ customer.display_name or \'Customer\' }}</div>'
     '<div class="source-line">'
     '<span class="source-logo {% if customer.source == \'whatsapp\' %}source-whatsapp{% elif customer.source == \'messenger\' %}source-messenger{% else %}source-other{% endif %}" '
     'title="{{ customer.source }}">'
@@ -44,7 +42,12 @@ def install_source_badges():
     template = app_live_new.TEMPLATE
     if "source-logo" not in template:
         template = template.replace(TARGET_CSS, TARGET_CSS + BADGE_CSS)
-        template = template.replace(CUSTOMER_ROW_OLD, CUSTOMER_ROW_NEW)
+        start = template.find(CUSTOMER_ROW_PREFIX)
+        if start != -1:
+            end_marker = "</div></a>{% else %}"
+            end = template.find(end_marker, start)
+            if end != -1:
+                template = template[:start] + CUSTOMER_ROW_NEW + template[end:]
         app_live_new.TEMPLATE = template
 
 
