@@ -55,23 +55,29 @@ FIXED_REPLY_RULES = [
         ],
         "reply": "Pickup address: 755 International Blvd, Houston, TX 77024.",
     },
-    {
-        "category": "model_photo_request",
-        "confidence": 0.82,
-        "keywords": [
-            "model",
-            "part number",
-            "size",
-            "measure",
-            "photo",
-            "picture",
-            "\u578b\u53f7",
-            "\u5c3a\u5bf8",
-            "\u7167\u7247",
-            "\u56fe\u7247",
-        ],
-        "reply": "Please send the appliance model number and a clear photo of the old gasket or model label. I will check the correct replacement for you.",
-    },
+]
+
+LEARNING_ONLY_KEYWORDS = [
+    "model",
+    "part number",
+    "size",
+    "measure",
+    "measurement",
+    "dimension",
+    "photo",
+    "picture",
+    "image",
+    "fit",
+    "fits",
+    "compatible",
+    "compatibility",
+    "\u578b\u53f7",
+    "\u5c3a\u5bf8",
+    "\u6d4b\u91cf",
+    "\u7167\u7247",
+    "\u56fe\u7247",
+    "\u9002\u914d",
+    "\u517c\u5bb9",
 ]
 
 
@@ -412,6 +418,23 @@ def fixed_reply_for(text):
     }
 
 
+def should_learn_without_draft(message):
+    text = (message.get("text") or "").lower()
+    if message.get("has_attachments"):
+        return True
+    return any(keyword.lower() in text for keyword in LEARNING_ONLY_KEYWORDS)
+
+
+def learning_only_reply_for(message):
+    return {
+        "source": "learning_only",
+        "category": "model_photo_request",
+        "confidence": 0,
+        "draft_text": "",
+        "status": "learning_only",
+    }
+
+
 def recent_conversation_text(messages, limit=12):
     lines = []
     for message in messages[-limit:]:
@@ -475,10 +498,7 @@ def openai_reply_for(customer, messages):
 
 
 def fallback_reply_for(message):
-    if message.get("has_attachments"):
-        text = "Thanks, I received it. I will check it and get back to you shortly."
-    else:
-        text = "Thanks for your message. Please send the appliance model number and a clear photo if you have it, and I will check the correct gasket for you."
+    text = "Thanks for your message. I will check it and get back to you shortly."
     return {"source": "fallback", "category": "draft_only", "confidence": 0.35, "draft_text": text}
 
 
@@ -486,6 +506,8 @@ def build_ai_reply(customer, messages, inbound_message):
     rule_reply = fixed_reply_for(inbound_message.get("text"))
     if rule_reply:
         return rule_reply
+    if should_learn_without_draft(inbound_message):
+        return learning_only_reply_for(inbound_message)
     try:
         ai_reply = openai_reply_for(customer, messages)
         if ai_reply:
@@ -522,6 +544,7 @@ def load_ai_draft(customer, messages):
             "openai_model": OPENAI_MODEL if OPENAI_API_KEY else None,
         },
         "draft_text": draft["draft_text"],
+        "status": draft.get("status", "drafted"),
     }
     try:
         return sb_post("ai_reply_drafts", payload)[0]
@@ -850,9 +873,15 @@ TEMPLATE = """
         <div class="reply-body">
           {% if ai_draft %}
           <div class="ai-draft">
+            {% if ai_draft.status == 'learning_only' %}
+            <span class="ai-badge">AI\u5b66\u4e60\u4e2d</span>
+            <span>{{ ai_draft.category }}</span>
+            <span class="ai-note">\u8fd9\u7c7b\u95ee\u9898\u6682\u65f6\u4e0d\u81ea\u52a8\u751f\u6210\u56de\u590d\uff0c\u53d1\u9001\u540e\u53ea\u7528\u4e8e\u5b66\u4e60</span>
+            {% else %}
             <span class="ai-badge">AI\u5efa\u8bae</span>
             <span>{{ ai_draft.category }}</span>
             <span class="ai-note">\u7f6e\u4fe1\u5ea6 {{ '%.0f'|format((ai_draft.confidence or 0) * 100) }}%\uff0c\u53d1\u9001\u524d\u53ef\u4fee\u6539</span>
+            {% endif %}
           </div>
           <input type="hidden" name="ai_draft_id" value="{{ ai_draft.id }}">
           {% endif %}
