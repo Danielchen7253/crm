@@ -224,7 +224,110 @@ def import_messenger_conversations():
 
 
 TEMPLATE = """
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>CRM 客户工作台</title><style>body{margin:0;font-family:Arial,"Microsoft YaHei",sans-serif;background:#f5f6f8;color:#17202a}*{box-sizing:border-box}header{height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;background:white;border-bottom:1px solid #d8dee8;font-weight:700}main{display:grid;grid-template-columns:380px 1fr;height:calc(100vh - 57px)}.list{background:white;border-right:1px solid #d8dee8;overflow:auto}.list-title{position:sticky;top:0;background:white;padding:14px 16px;border-bottom:1px solid #edf0f4;color:#5c6773;font-size:13px}.customer{display:grid;grid-template-columns:44px 1fr;gap:12px;padding:14px 16px;border-bottom:1px solid #edf0f4;text-decoration:none;color:inherit}.active{background:#eef7f4;border-left:4px solid #1f8a70;padding-left:12px}.avatar{width:44px;height:44px;border-radius:50%;background:#1f8a70;color:white;display:flex;align-items:center;justify-content:center;font-weight:700;overflow:hidden}.avatar.large{width:72px;height:72px;font-size:24px}.avatar img{width:100%;height:100%;object-fit:cover}.name{font-weight:700;margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.preview{font-size:13px;color:#3e4b57;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.meta{font-size:12px;color:#6a7682;margin-top:5px}.profile{display:flex;flex-direction:column;height:100%;overflow:hidden}.head{display:flex;gap:16px;align-items:center;background:white;border-bottom:1px solid #d8dee8;padding:20px 24px}.details{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:16px 24px}.field{background:white;border:1px solid #d8dee8;border-radius:8px;padding:12px}.label{font-size:12px;color:#6a7682;margin-bottom:8px}.conversation{flex:1;overflow:auto;padding:10px 24px}.messages{display:flex;flex-direction:column;gap:10px}.message{max-width:78%;padding:10px 12px;border:1px solid #d8dee8;border-radius:8px;background:white;line-height:1.45}.outbound{align-self:flex-end;background:#eaf2ff}.inbound{align-self:flex-start}.time{font-size:11px;color:#6a7682;margin-top:6px}.reply{display:grid;grid-template-columns:1fr 96px;gap:10px;background:white;border-top:1px solid #d8dee8;padding:14px 24px}textarea{min-height:44px;border:1px solid #cfd7e2;border-radius:8px;padding:11px;font:inherit}button{border:0;border-radius:8px;background:#1f8a70;color:white;font-weight:700}.empty{margin:24px;background:white;border:1px solid #d8dee8;border-radius:8px;padding:22px}@media(max-width:860px){main{grid-template-columns:1fr;height:auto}.list{max-height:42vh}.details{grid-template-columns:1fr}.reply{grid-template-columns:1fr}}</style></head><body><header><div>CRM 客户工作台</div><div>{{ customers|length }} 个客户</div></header><main><section class="list"><div class="list-title">按最近互动时间排列</div>{% for customer in customers %}{% set latest = latest_by_customer.get(customer.id) %}<a class="customer {% if customer.id == selected_customer_id %}active{% endif %}" href="/?customer={{ customer.id }}"><div class="avatar">{% if customer.profile_pic_url %}<img src="{{ customer.profile_pic_url }}" alt="">{% else %}{{ (customer.display_name or 'C')[:1] }}{% endif %}</div><div><div class="name">{{ customer.display_name or '未命名客户' }}</div><div class="preview">{{ latest.text if latest and latest.text else '暂无文字消息' }}</div><div class="meta">{{ customer.source }} · {{ customer.last_seen_at }}</div></div></a>{% else %}<div class="empty">还没有客户</div>{% endfor %}</section><section>{% if selected_customer %}<div class="profile"><div class="head"><div class="avatar large">{% if selected_customer.profile_pic_url %}<img src="{{ selected_customer.profile_pic_url }}" alt="">{% else %}{{ (selected_customer.display_name or 'C')[:1] }}{% endif %}</div><div><h1>{{ selected_customer.display_name or '未命名客户' }}</h1><div>{{ selected_customer.source }}</div></div></div><div class="details"><div class="field"><div class="label">第一次联系</div>{{ selected_customer.first_seen_at or '-' }}</div><div class="field"><div class="label">最近互动</div>{{ selected_customer.last_seen_at or '-' }}</div><div class="field"><div class="label">最近消息时间</div>{{ selected_customer.last_message_at or '-' }}</div><div class="field"><div class="label">语言</div>{{ selected_customer.locale or '-' }}</div></div><div class="conversation"><h2>聊天记录</h2><div class="messages">{% for message in selected_messages %}<div class="message {{ message.direction }}"><div>{{ message.text if message.text else '[附件或系统消息]' }}</div><div class="time">{{ '客户发来' if message.direction == 'inbound' else '我们回复' }} · {{ message.sent_at }}</div></div>{% else %}<div class="empty">这个客户还没有可显示的聊天记录。</div>{% endfor %}</div></div><form class="reply" method="post" action="/customers/{{ selected_customer.id }}/messages"><textarea name="text" placeholder="输入要发给客户的消息" required></textarea><button type="submit">发送</button></form></div>{% else %}<div class="empty">请选择客户</div>{% endif %}</section></main></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CRM 客户工作台</title>
+  <style>
+    :root { font-family: Arial, "Microsoft YaHei", sans-serif; color: #17202a; background: #f4f6f8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    .app { display: grid; grid-template-columns: 220px minmax(0, 1fr); height: 100vh; min-height: 640px; }
+    .sidebar { background: #fff; border-right: 1px solid #d8dee8; overflow: auto; }
+    .sidebar-head { position: sticky; top: 0; z-index: 2; background: #fff; height: 56px; display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid #edf0f4; font-weight: 700; }
+    .customer { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 10px; align-items: center; min-height: 64px; padding: 10px 14px; border-bottom: 1px solid #edf0f4; text-decoration: none; color: inherit; }
+    .customer:hover { background: #f8fafb; }
+    .customer.active { background: #eef7f4; border-left: 4px solid #1f8a70; padding-left: 10px; }
+    .avatar { width: 42px; height: 42px; border-radius: 50%; background: #1f8a70; color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; overflow: hidden; flex: none; }
+    .avatar.large { width: 72px; height: 72px; font-size: 24px; }
+    .avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .customer-name { font-size: 14px; font-weight: 700; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .work { display: flex; flex-direction: column; min-width: 0; height: 100vh; overflow: hidden; }
+    .profile { background: #fff; border-bottom: 1px solid #d8dee8; padding: 18px 24px 16px; }
+    .profile-main { display: flex; align-items: center; gap: 16px; }
+    .profile h1 { margin: 0 0 8px; font-size: 24px; line-height: 1.2; }
+    .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .pill { border: 1px solid #d8dee8; background: #f8fafb; border-radius: 999px; padding: 5px 10px; font-size: 12px; color: #3e4b57; }
+    .tag { background: #eef7f4; border-color: #c7d7d2; color: #17634f; font-weight: 700; }
+    .chat { flex: 1; overflow: auto; padding: 18px 24px; }
+    .messages { display: flex; flex-direction: column; gap: 10px; max-width: 860px; }
+    .message { max-width: 78%; padding: 11px 13px; border: 1px solid #d8dee8; border-radius: 8px; background: #fff; line-height: 1.45; font-size: 14px; overflow-wrap: anywhere; }
+    .message.outbound { align-self: flex-end; background: #eaf2ff; border-color: #c9dcff; }
+    .message.inbound { align-self: flex-start; }
+    .time { color: #6a7682; font-size: 11px; margin-top: 6px; }
+    .reply { display: grid; grid-template-columns: minmax(0, 1fr) 108px; gap: 12px; align-items: stretch; background: #fff; border-top: 1px solid #d8dee8; padding: 16px 24px; }
+    textarea { width: 100%; min-height: 78px; max-height: 180px; resize: vertical; border: 1px solid #cfd7e2; border-radius: 8px; padding: 12px 13px; font: inherit; line-height: 1.4; }
+    button { border: 0; border-radius: 8px; background: #1f8a70; color: white; font-weight: 700; cursor: pointer; font-size: 15px; }
+    button:hover { background: #176f5a; }
+    .empty { margin: 24px; background: #fff; border: 1px solid #d8dee8; border-radius: 8px; padding: 22px; }
+    @media (max-width: 860px) {
+      .app { grid-template-columns: 112px minmax(0, 1fr); }
+      .sidebar-head { padding: 0 10px; font-size: 13px; }
+      .customer { grid-template-columns: 42px; justify-items: center; padding: 10px; }
+      .customer-name { font-size: 11px; text-align: center; white-space: normal; max-height: 2.5em; }
+      .profile { padding: 14px; }
+      .chat { padding: 14px; }
+      .reply { grid-template-columns: 1fr; padding: 12px 14px; }
+      button { min-height: 44px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <aside class="sidebar">
+      <div class="sidebar-head">客户 {{ customers|length }}</div>
+      {% for customer in customers %}
+      <a class="customer {% if customer.id == selected_customer_id %}active{% endif %}" href="/?customer={{ customer.id }}" title="{{ customer.display_name or '未命名客户' }}">
+        <div class="avatar">{% if customer.profile_pic_url %}<img src="{{ customer.profile_pic_url }}" alt="">{% else %}{{ (customer.display_name or 'C')[:1] }}{% endif %}</div>
+        <div class="customer-name">{{ customer.display_name or '未命名客户' }}</div>
+      </a>
+      {% else %}
+      <div class="empty">还没有客户</div>
+      {% endfor %}
+    </aside>
+    <section class="work">
+      {% if selected_customer %}
+      <header class="profile">
+        <div class="profile-main">
+          <div class="avatar large">{% if selected_customer.profile_pic_url %}<img src="{{ selected_customer.profile_pic_url }}" alt="">{% else %}{{ (selected_customer.display_name or 'C')[:1] }}{% endif %}</div>
+          <div>
+            <h1>{{ selected_customer.display_name or '未命名客户' }}</h1>
+            <div class="pill-row">
+              <span class="pill tag">{{ selected_customer.source }}</span>
+              <span class="pill">第一次联系 {{ selected_customer.first_seen_at or '-' }}</span>
+              <span class="pill">最近互动 {{ selected_customer.last_seen_at or '-' }}</span>
+              <span class="pill">最后消息 {{ selected_customer.last_message_at or '-' }}</span>
+              <span class="pill">语言 {{ selected_customer.locale or '-' }}</span>
+              {% for tag in selected_customer.tags %}<span class="pill tag">{{ tag }}</span>{% endfor %}
+            </div>
+          </div>
+        </div>
+      </header>
+      <section class="chat">
+        <div class="messages">
+          {% for message in selected_messages %}
+          <div class="message {{ message.direction }}">
+            <div>{{ message.text if message.text else '[附件或系统消息]' }}</div>
+            <div class="time">{{ '客户发来' if message.direction == 'inbound' else '我们回复' }} · {{ message.sent_at }}</div>
+          </div>
+          {% else %}
+          <div class="empty">这个客户还没有可显示的聊天记录。</div>
+          {% endfor %}
+        </div>
+      </section>
+      <form class="reply" method="post" action="/customers/{{ selected_customer.id }}/messages">
+        <textarea name="text" placeholder="输入要发给客户的消息" required autofocus></textarea>
+        <button type="submit">发送</button>
+      </form>
+      {% else %}
+      <div class="empty">请选择客户</div>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>
 """
 
 if __name__ == "__main__":
