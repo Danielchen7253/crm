@@ -26,13 +26,87 @@ REALTIME_SCRIPT = """
   let lastSignature = null;
   let reloading = false;
   let checking = false;
+  let audioContext = null;
   const title = document.title || 'CRM 客户工作台';
+
+  function getAudioContext() {
+    const AudioCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtor) return null;
+    if (!audioContext) audioContext = new AudioCtor();
+    return audioContext;
+  }
+
+  function soundEnabled() {
+    return window.localStorage && localStorage.getItem('crmSoundEnabled') === '1';
+  }
+
+  async function enableSound() {
+    const ctx = getAudioContext();
+    if (!ctx) return false;
+    if (ctx.state === 'suspended') await ctx.resume();
+    localStorage.setItem('crmSoundEnabled', '1');
+    playAlertSound();
+    return true;
+  }
+
+  function playAlertSound() {
+    if (!soundEnabled()) return;
+    const ctx = getAudioContext();
+    if (!ctx || ctx.state === 'suspended') return;
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(880, ctx.currentTime);
+    oscillator.frequency.setValueAtTime(660, ctx.currentTime + 0.11);
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.11, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.24);
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start(ctx.currentTime);
+    oscillator.stop(ctx.currentTime + 0.26);
+  }
+
+  function vibrate() {
+    if (navigator.vibrate) navigator.vibrate([90, 45, 90]);
+  }
+
+  function installSoundButton() {
+    if (soundEnabled() || document.getElementById('crm-sound-toggle')) return;
+    const button = document.createElement('button');
+    button.id = 'crm-sound-toggle';
+    button.type = 'button';
+    button.textContent = '开启提醒音';
+    button.setAttribute('aria-label', '开启新消息提醒音');
+    button.style.position = 'fixed';
+    button.style.right = '18px';
+    button.style.bottom = '18px';
+    button.style.zIndex = '9999';
+    button.style.border = '1px solid rgba(37, 99, 235, 0.22)';
+    button.style.background = '#2563eb';
+    button.style.color = '#ffffff';
+    button.style.borderRadius = '8px';
+    button.style.padding = '10px 14px';
+    button.style.fontSize = '13px';
+    button.style.fontWeight = '700';
+    button.style.boxShadow = '0 12px 26px rgba(37, 99, 235, 0.24)';
+    button.style.cursor = 'pointer';
+    button.addEventListener('click', async function () {
+      const ok = await enableSound();
+      if (!ok) return;
+      button.textContent = '提醒音已开';
+      setTimeout(function () { button.remove(); }, 900);
+    });
+    document.body.appendChild(button);
+  }
 
   function refresh() {
     if (reloading) return;
     reloading = true;
     document.title = '有新消息 - ' + title.replace(/^有新消息 - /, '');
-    window.location.reload();
+    playAlertSound();
+    vibrate();
+    setTimeout(function () { window.location.reload(); }, soundEnabled() ? 260 : 20);
   }
 
   async function checkLatest() {
@@ -66,6 +140,11 @@ REALTIME_SCRIPT = """
     }
   }
 
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', installSoundButton, { once: true });
+  } else {
+    installSoundButton();
+  }
   startRealtime();
   setInterval(checkLatest, 1000);
   setTimeout(checkLatest, 300);
