@@ -2,7 +2,6 @@ import hashlib
 import hmac
 import os
 from datetime import datetime, timezone
-from urllib.parse import urlencode
 
 import requests
 from flask import Flask, Response, abort, jsonify, redirect, render_template_string, request
@@ -93,8 +92,14 @@ def graph_get(path, params=None):
     response = requests.get(
         f"https://graph.facebook.com/{GRAPH_API_VERSION}/{path.lstrip('/')}",
         params=params,
-        timeout=20,
+        timeout=30,
     )
+    response.raise_for_status()
+    return response.json()
+
+
+def graph_get_url(url):
+    response = requests.get(url, timeout=30)
     response.raise_for_status()
     return response.json()
 
@@ -180,7 +185,7 @@ def ensure_customer(psid, profile=None):
             {"display_name": name, "raw_profile": profile, "updated_at": now_iso()},
             {"provider": "eq.messenger", "provider_user_id": f"eq.{psid}"},
         )
-        return customer_id
+        return customer_id, False
 
     customer = sb_post(
         "customers",
@@ -202,7 +207,7 @@ def ensure_customer(psid, profile=None):
             "raw_profile": profile,
         },
     )
-    return customer["id"]
+    return customer["id"], True
 
 
 def save_message(customer_id, message_id, direction, text, attachments, raw, sent_at=None):
@@ -244,27 +249,56 @@ def process_event(event):
         return
     timestamp = event.get("timestamp")
     sent_at = datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc).isoformat() if timestamp else None
-    customer_id = ensure_customer(psid)
+    customer_id, _ = ensure_customer(psid)
     save_message(customer_id, message.get("mid"), direction, message.get("text"), message.get("attachments", []), event, sent_at)
 
 
-def collect_attachment_urls(value):
-    urls = []
+def collect_attachment_items(value, inherited_type=None):
+    items = []
     if isinstance(value, dict):
-        for key, child in value.items():
-            if key in {"url", "preview_url", "src"} and isinstance(child, str) and child.startswith("http"):
-                urls.append(child)
-            else:
-                urls.extend(collect_attachment_urls(child))
+        item_type = value.get("type") or inherited_type or "file"
+        payload = value.get("payload") if isinstance(value.get("payload"), dict) else {}
+        candidate_urls = []
+        for key in ["url", "preview_url", "src"]:
+            if isinstance(value.get(key), str):
+                candidate_urls.append(value[key])
+            if isinstance(payload.get(key), str):
+                candidate_urls.append(payload[key])
+        for url in candidate_urls:
+            if not url.startswith("http"):
+                continue
+            kind = item_type
+            lower_url = url.lower()
+            if kind not in {"image", "audio", "video", "file"}:
+                kind = "file"
+            if kind == "file":
+                if any(ext in lower_url for ext in [".jpg", ".jpeg", ".png", ".gif", ".webp"]):
+                    kind = "image"
+                elif any(ext in lower_url for ext in [".mp3", ".m4a", ".aac", ".wav", ".ogg", ".oga", ".amr", ".mp4"]):
+                    kind = "audio"
+            items.append({"type": kind, "url": url})
+        for child in value.values():
+            items.extend(collect_attachment_items(child, item_type))
     elif isinstance(value, list):
         for item in value:
-            urls.extend(collect_attachment_urls(item))
-    return list(dict.fromkeys(urls))
+            items.extend(collect_attachment_items(item, inherited_type))
+
+    unique = []
+    seen = set()
+    for item in items:
+        key = (item["type"], item["url"])
+        if key not in seen:
+            unique.append(item)
+            seen.add(key)
+    return unique
 
 
 def decorate_message(message):
-    attachments = message.get("attachments") or []
-    message["attachment_urls"] = collect_attachment_urls(attachments)
+    attachment_items = collect_attachment_items(message.get("attachments") or [])
+    message["image_attachments"] = [item for item in attachment_items if item["type"] == "image"]
+    message["audio_attachments"] = [item for item in attachment_items if item["type"] == "audio"]
+    message["file_attachments"] = [item for item in attachment_items if item["type"] not in {"image", "audio"}]
+    message["has_attachments"] = bool(attachment_items)
     return message
 
 
@@ -301,6 +335,58 @@ def load_dashboard(selected_id):
         )
         messages = [decorate_message(message) for message in reversed(newest_messages)]
     return customers, latest, selected, messages, selected_id
+
+
+def import_conversation(conversation):
+    people = [p for p in conversation.get("participants", {}).get("data", []) if p.get("id") != META_PAGE_ID]
+    if not people:
+        return {"customer_created": 0, "messages_imported": 0}
+    customer_id, created = ensure_customer(people[0]["id"], people[0])
+    imported = 0
+    for message in conversation.get("messages", {}).get("data", []):
+        direction = "outbound" if message.get("from", {}).get("id") == META_PAGE_ID else "inbound"
+        if save_message(
+            customer_id,
+            message.get("id"),
+            direction,
+            message.get("message"),
+            message.get("attachments", {}).get("data", []),
+            message,
+            message.get("created_time"),
+        ):
+            imported += 1
+    return {"customer_created": 1 if created else 0, "messages_imported": imported}
+
+
+def sync_messenger_conversations_paginated(max_pages=200, page_limit=100, messages_limit=25):
+    if not META_PAGE_ID or not META_PAGE_ACCESS_TOKEN:
+        raise RuntimeError("META_PAGE_ID and META_PAGE_ACCESS_TOKEN are required.")
+
+    fields = f"participants{{id,name,profile_pic}},messages.limit({messages_limit}){{id,message,from,to,created_time,attachments}}"
+    page = graph_get(f"{META_PAGE_ID}/conversations", {"fields": fields, "limit": str(page_limit)})
+    pages = 0
+    conversations_seen = 0
+    customers_created = 0
+    messages_imported = 0
+
+    while page and pages < max_pages:
+        pages += 1
+        conversations = page.get("data", [])
+        conversations_seen += len(conversations)
+        for conversation in conversations:
+            result = import_conversation(conversation)
+            customers_created += result["customer_created"]
+            messages_imported += result["messages_imported"]
+        next_url = page.get("paging", {}).get("next")
+        page = graph_get_url(next_url) if next_url else None
+
+    return {
+        "pages": pages,
+        "conversations_seen": conversations_seen,
+        "customers_created": customers_created,
+        "messages_imported": messages_imported,
+        "stopped_by_max_pages": bool(page),
+    }
 
 
 @app.get("/")
@@ -358,29 +444,16 @@ def send_customer_message(customer_id):
 
 @app.post("/admin/import/messenger-conversations")
 def import_messenger_conversations():
-    conversations = graph_get(
-        f"{META_PAGE_ID}/conversations",
-        {"fields": "participants{id,name},messages.limit(10){id,message,from,to,created_time,attachments}", "limit": "100"},
-    )
-    imported = 0
-    for conversation in conversations.get("data", []):
-        people = [p for p in conversation.get("participants", {}).get("data", []) if p.get("id") != META_PAGE_ID]
-        if not people:
-            continue
-        customer_id = ensure_customer(people[0]["id"], {"name": people[0].get("name")})
-        for message in conversation.get("messages", {}).get("data", []):
-            direction = "outbound" if message.get("from", {}).get("id") == META_PAGE_ID else "inbound"
-            if save_message(
-                customer_id,
-                message.get("id"),
-                direction,
-                message.get("message"),
-                message.get("attachments", {}).get("data", []),
-                message,
-                message.get("created_time"),
-            ):
-                imported += 1
-    return jsonify({"ok": True, "imported_messages": imported})
+    try:
+        max_pages = max(1, min(int(request.args.get("max_pages", "200")), 500))
+        page_limit = max(1, min(int(request.args.get("limit", "100")), 100))
+        messages_limit = max(1, min(int(request.args.get("messages_limit", "25")), 100))
+        result = sync_messenger_conversations_paginated(max_pages, page_limit, messages_limit)
+    except RuntimeError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    except requests.RequestException as error:
+        return jsonify({"ok": False, "error": str(error)}), 502
+    return jsonify({"ok": True, **result})
 
 
 TEMPLATE = """
@@ -419,7 +492,8 @@ TEMPLATE = """
     .message-text { white-space: pre-wrap; }
     .attachment-list { display: grid; gap: 8px; margin-top: 8px; }
     .attachment-image { display: block; max-width: min(360px, 100%); max-height: 420px; border-radius: 8px; border: 1px solid #d8dee8; object-fit: contain; background: #f8fafb; }
-    .attachment-link { color: #17634f; font-size: 13px; word-break: break-all; }
+    .attachment-audio { width: min(360px, 100%); height: 42px; display: block; }
+    .attachment-file { display: inline-flex; align-items: center; min-height: 34px; border: 1px solid #c7d7d2; border-radius: 8px; color: #17634f; background: #f7fbfa; padding: 7px 10px; font-size: 13px; text-decoration: none; word-break: break-all; }
     .time { color: #6a7682; font-size: 11px; margin-top: 6px; }
     .reply { display: grid; grid-template-columns: minmax(0, 1fr) 108px; gap: 12px; align-items: stretch; background: #fff; border-top: 1px solid #d8dee8; padding: 16px 24px; }
     textarea { width: 100%; min-height: 78px; max-height: 180px; resize: vertical; border: 1px solid #cfd7e2; border-radius: 8px; padding: 12px 13px; font: inherit; line-height: 1.4; }
@@ -474,17 +548,20 @@ TEMPLATE = """
           {% for message in selected_messages %}
           <div class="message {{ message.direction }}">
             {% if message.text %}<div class="message-text">{{ message.text }}</div>{% endif %}
-            {% if message.attachment_urls %}
+            {% if message.image_attachments or message.audio_attachments or message.file_attachments %}
             <div class="attachment-list">
-              {% for url in message.attachment_urls %}
-              <a href="{{ url }}" target="_blank" rel="noopener">
-                <img class="attachment-image" src="{{ url }}" alt="客户发送的图片" loading="lazy" onerror="this.style.display='none'; this.parentElement.querySelector('.attachment-link').style.display='inline';">
-                <span class="attachment-link" style="display:none;">打开附件</span>
-              </a>
+              {% for item in message.image_attachments %}
+              <a href="{{ item.url }}" target="_blank" rel="noopener"><img class="attachment-image" src="{{ item.url }}" alt="客户发送的图片" loading="lazy"></a>
+              {% endfor %}
+              {% for item in message.audio_attachments %}
+              <audio class="attachment-audio" controls preload="metadata" src="{{ item.url }}"></audio>
+              {% endfor %}
+              {% for item in message.file_attachments %}
+              <a class="attachment-file" href="{{ item.url }}" target="_blank" rel="noopener">打开附件</a>
               {% endfor %}
             </div>
             {% endif %}
-            {% if not message.text and not message.attachment_urls %}<div>[附件或系统消息]</div>{% endif %}
+            {% if not message.text and not message.has_attachments %}<div>[附件或系统消息]</div>{% endif %}
             <div class="time">{{ '客户发来' if message.direction == 'inbound' else '我们回复' }} · {{ message.sent_at }}</div>
           </div>
           {% else %}
