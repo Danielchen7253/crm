@@ -51,3 +51,12 @@ create index if not exists idx_messages_customer_sent_at
 
 create index if not exists idx_customers_last_seen
   on customers(last_seen_at desc);
+
+-- Required for Supabase Realtime browser updates.
+-- Run this once if the messages table is not already enabled in Realtime.
+do $$
+begin
+  alter publication supabase_realtime add table public.messages;
+exception
+  when duplicate_object then null;
+end $$;
