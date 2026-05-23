@@ -84,6 +84,8 @@ def redacted_error(error):
     for secret in secrets:
         if secret:
             text = text.replace(secret, "[redacted]")
+    if " for url:" in text:
+        text = text.split(" for url:", 1)[0]
     return text
 
 
