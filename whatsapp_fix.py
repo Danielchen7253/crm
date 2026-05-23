@@ -67,8 +67,7 @@ def receive_meta_webhook_fixed():
     return jsonify({"ok": True, "imported": imported})
 
 
-@app.get("/admin/whatsapp/diagnostics")
-def whatsapp_diagnostics():
+def whatsapp_diagnostics_fixed():
     try:
         customers = crm_module.sb_get_all("customers", {"select": "source"}, page_size=1000, max_rows=50000)
         whatsapp_messages = crm_module.sb_get("messages", {"provider": "eq.whatsapp", "select": "id", "limit": "1"})
@@ -101,3 +100,7 @@ def whatsapp_diagnostics():
 app.view_functions["receive_whatsapp_webhook"] = receive_whatsapp_webhook_fixed
 app.view_functions["verify_whatsapp_webhook"] = verify_whatsapp_webhook_fixed
 app.view_functions["receive_webhook"] = receive_meta_webhook_fixed
+if "whatsapp_diagnostics" in app.view_functions:
+    app.view_functions["whatsapp_diagnostics"] = whatsapp_diagnostics_fixed
+else:
+    app.add_url_rule("/admin/whatsapp/diagnostics", "whatsapp_diagnostics", whatsapp_diagnostics_fixed, methods=["GET"])
