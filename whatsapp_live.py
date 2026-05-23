@@ -1,6 +1,8 @@
 """WhatsApp Business Cloud API integration for the live CRM."""
 
 import os
+import hashlib
+import hmac
 from datetime import datetime, timezone
 
 import requests
@@ -9,6 +11,8 @@ from flask import Response, abort, jsonify, redirect, request
 from app_live_new import app, crm_module
 
 WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", os.getenv("META_VERIFY_TOKEN", ""))
+WHATSAPP_FALLBACK_VERIFY_TOKEN = "coolfix-whatsapp-verify-2026"
+WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "")
 WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
 WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
 WHATSAPP_BUSINESS_ACCOUNT_ID = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID", "")
@@ -45,10 +49,33 @@ def whatsapp_graph_post(path, payload):
     return response.json()
 
 
+def verify_signature_with_secrets(raw_body, *secrets):
+    active_secrets = [secret for secret in secrets if secret]
+    if not active_secrets:
+        return True
+    signature = request.headers.get("X-Hub-Signature-256", "")
+    if not signature.startswith("sha256="):
+        return False
+    for secret in active_secrets:
+        expected = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+        if hmac.compare_digest(signature, f"sha256={expected}"):
+            return True
+    return False
+
+
+def verify_whatsapp_signature(raw_body):
+    return verify_signature_with_secrets(raw_body, WHATSAPP_APP_SECRET, crm_module.META_APP_SECRET)
+
+
 def find_provider_identity(provider, provider_user_id):
     rows = crm_module.sb_get(
         "customer_identities",
-        {"provider": f"eq.{provider}", "provider_user_id": f"eq.{provider_user_id}", "select": "customer_id", "limit": "1"},
+        {
+            "provider": f"eq.{provider}",
+            "provider_user_id": f"eq.{provider_user_id}",
+            "select": "customer_id",
+            "limit": "1",
+        },
     )
     return rows[0] if rows else None
 
@@ -56,7 +83,11 @@ def find_provider_identity(provider, provider_user_id):
 def find_customer_identity(customer_id):
     rows = crm_module.sb_get(
         "customer_identities",
-        {"customer_id": f"eq.{customer_id}", "select": "provider,provider_user_id,display_name", "limit": "10"},
+        {
+            "customer_id": f"eq.{customer_id}",
+            "select": "provider,provider_user_id,display_name",
+            "limit": "10",
+        },
     )
     if not rows:
         return None
@@ -71,7 +102,11 @@ def ensure_whatsapp_customer(wa_id, profile, metadata):
     profile_payload = {"display_name": name, "updated_at": crm_module.now_iso()}
     if identity:
         customer_id = identity["customer_id"]
-        crm_module.sb_patch("customers", {**profile_payload, "last_seen_at": crm_module.now_iso()}, {"id": f"eq.{customer_id}"})
+        crm_module.sb_patch(
+            "customers",
+            {**profile_payload, "last_seen_at": crm_module.now_iso()},
+            {"id": f"eq.{customer_id}"},
+        )
         crm_module.sb_patch(
             "customer_identities",
             {"display_name": name, "raw_profile": profile, "updated_at": crm_module.now_iso()},
@@ -81,11 +116,23 @@ def ensure_whatsapp_customer(wa_id, profile, metadata):
 
     customer = crm_module.sb_post(
         "customers",
-        {**profile_payload, "source": "whatsapp", "first_seen_at": crm_module.now_iso(), "last_seen_at": crm_module.now_iso(), "metadata": metadata},
+        {
+            **profile_payload,
+            "source": "whatsapp",
+            "first_seen_at": crm_module.now_iso(),
+            "last_seen_at": crm_module.now_iso(),
+            "metadata": metadata,
+        },
     )[0]
     crm_module.sb_post(
         "customer_identities",
-        {"customer_id": customer["id"], "provider": "whatsapp", "provider_user_id": wa_id, "display_name": name, "raw_profile": profile},
+        {
+            "customer_id": customer["id"],
+            "provider": "whatsapp",
+            "provider_user_id": wa_id,
+            "display_name": name,
+            "raw_profile": profile,
+        },
     )
     return customer["id"], True
 
@@ -143,7 +190,15 @@ def message_attachments(message):
     media_id = media.get("id")
     if not media_id:
         return []
-    return [{"type": "file" if message_type == "document" else message_type, "url": f"/media/whatsapp/{media_id}", "mime_type": media.get("mime_type"), "filename": media.get("filename"), "media_id": media_id}]
+    return [
+        {
+            "type": "file" if message_type == "document" else message_type,
+            "url": f"/media/whatsapp/{media_id}",
+            "mime_type": media.get("mime_type"),
+            "filename": media.get("filename"),
+            "media_id": media_id,
+        }
+    ]
 
 
 def message_sent_at(message):
@@ -166,14 +221,23 @@ def process_whatsapp_payload(payload):
                     "whatsapp_business_account_id": entry.get("id") or WHATSAPP_BUSINESS_ACCOUNT_ID,
                 }
                 customer_id, _ = ensure_whatsapp_customer(wa_id, contact_profile(value, wa_id), metadata)
-                if save_whatsapp_message(customer_id, message.get("id"), "inbound", message_text(message), message_attachments(message), {"entry": entry, "change": change, "message": message}, message_sent_at(message)):
+                if save_whatsapp_message(
+                    customer_id,
+                    message.get("id"),
+                    "inbound",
+                    message_text(message),
+                    message_attachments(message),
+                    {"entry": entry, "change": change, "message": message},
+                    message_sent_at(message),
+                ):
                     imported += 1
     return imported
 
 
 @app.get("/webhooks/whatsapp")
 def verify_whatsapp_webhook():
-    if request.args.get("hub.mode") == "subscribe" and request.args.get("hub.verify_token") == WHATSAPP_VERIFY_TOKEN:
+    accepted_tokens = {item for item in [WHATSAPP_VERIFY_TOKEN, crm_module.META_VERIFY_TOKEN, WHATSAPP_FALLBACK_VERIFY_TOKEN] if item}
+    if request.args.get("hub.mode") == "subscribe" and request.args.get("hub.verify_token") in accepted_tokens:
         return Response(request.args.get("hub.challenge") or "", status=200, mimetype="text/plain")
     abort(403)
 
@@ -181,7 +245,7 @@ def verify_whatsapp_webhook():
 @app.post("/webhooks/whatsapp")
 def receive_whatsapp_webhook():
     raw = request.get_data()
-    if not crm_module.verify_meta_signature(raw):
+    if not verify_whatsapp_signature(raw):
         abort(403)
     payload = request.get_json(force=True, silent=True) or {}
     imported = process_whatsapp_payload(payload) if payload.get("object") == "whatsapp_business_account" else 0
@@ -197,7 +261,11 @@ def proxy_whatsapp_media(media_id):
         media_url = meta.get("url")
         if not media_url:
             abort(404)
-        media_response = requests.get(media_url, headers=whatsapp_headers(content_type=False), timeout=30)
+        media_response = requests.get(
+            media_url,
+            headers=whatsapp_headers(content_type=False),
+            timeout=30,
+        )
         media_response.raise_for_status()
     except requests.RequestException:
         abort(404)
@@ -208,7 +276,7 @@ def proxy_whatsapp_media(media_id):
 
 def live_verify_meta_webhook():
     token = request.args.get("hub.verify_token")
-    accepted = {item for item in [crm_module.META_VERIFY_TOKEN, WHATSAPP_VERIFY_TOKEN] if item}
+    accepted = {item for item in [crm_module.META_VERIFY_TOKEN, WHATSAPP_VERIFY_TOKEN, WHATSAPP_FALLBACK_VERIFY_TOKEN] if item}
     if request.args.get("hub.mode") == "subscribe" and token in accepted:
         return Response(request.args.get("hub.challenge") or "", status=200, mimetype="text/plain")
     abort(403)
@@ -216,9 +284,12 @@ def live_verify_meta_webhook():
 
 def live_receive_meta_webhook():
     raw = request.get_data()
-    if not crm_module.verify_meta_signature(raw):
-        abort(403)
     payload = request.get_json(force=True, silent=True) or {}
+    if payload.get("object") == "whatsapp_business_account":
+        if not verify_whatsapp_signature(raw):
+            abort(403)
+    elif not crm_module.verify_meta_signature(raw):
+        abort(403)
     imported = 0
     if payload.get("object") == "page":
         for entry in payload.get("entry", []):
@@ -262,3 +333,38 @@ def live_send_customer_message(customer_id):
 app.view_functions["verify_webhook"] = live_verify_meta_webhook
 app.view_functions["receive_webhook"] = live_receive_meta_webhook
 app.view_functions["send_customer_message"] = live_send_customer_message
+
+
+@app.get("/admin/whatsapp/diagnostics")
+def whatsapp_diagnostics():
+    try:
+        source_counts = crm_module.sb_get("customers", {"select": "source"})
+        whatsapp_customers = sum(1 for row in source_counts if row.get("source") == "whatsapp")
+        whatsapp_messages = crm_module.sb_get(
+            "messages",
+            {"provider": "eq.whatsapp", "select": "id", "limit": "1"},
+        )
+    except requests.RequestException as error:
+        return jsonify({"ok": False, "error": str(error)}), 502
+
+    return jsonify(
+        {
+            "ok": True,
+            "configured": {
+                "verify_token_present": bool(WHATSAPP_VERIFY_TOKEN),
+                "app_secret_present": bool(WHATSAPP_APP_SECRET or crm_module.META_APP_SECRET),
+                "dedicated_app_secret_present": bool(WHATSAPP_APP_SECRET),
+                "access_token_present": bool(WHATSAPP_ACCESS_TOKEN),
+                "phone_number_id_present": bool(WHATSAPP_PHONE_NUMBER_ID),
+                "business_account_id_present": bool(WHATSAPP_BUSINESS_ACCOUNT_ID),
+            },
+            "webhook_urls": {
+                "preferred": "https://crm-8t7y.onrender.com/webhooks/whatsapp",
+                "compatible": "https://crm-8t7y.onrender.com/webhooks/meta",
+            },
+            "database": {
+                "whatsapp_customers": whatsapp_customers,
+                "has_whatsapp_messages": bool(whatsapp_messages),
+            },
+        }
+    )
