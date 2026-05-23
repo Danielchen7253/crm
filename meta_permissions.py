@@ -62,6 +62,19 @@ def debug_page_token():
 
 
 def redacted_error(error):
+    response = getattr(error, "response", None)
+    if response is not None:
+        try:
+            payload = response.json()
+            meta_error = payload.get("error", {}) if isinstance(payload, dict) else {}
+            message = meta_error.get("message")
+            code = meta_error.get("code")
+            if message:
+                return f"Meta API error {code}: {message}" if code else f"Meta API error: {message}"
+        except ValueError:
+            pass
+        return f"Meta API request failed with HTTP {response.status_code}"
+
     text = str(error)
     secrets = [
         getattr(crm_module, "META_PAGE_ACCESS_TOKEN", ""),
