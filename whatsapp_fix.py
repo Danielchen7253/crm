@@ -5,12 +5,13 @@ import hmac
 import os
 
 import requests
-from flask import abort, jsonify, request
+from flask import Response, abort, jsonify, request
 
 from app_live_new import app, crm_module
 import whatsapp_live
 
 WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "")
+FALLBACK_VERIFY_TOKEN = "coolfix-whatsapp-verify-2026"
 
 
 def verify_signature_with_secrets(raw_body, *secrets):
@@ -38,6 +39,13 @@ def receive_whatsapp_webhook_fixed():
     payload = request.get_json(force=True, silent=True) or {}
     imported = whatsapp_live.process_whatsapp_payload(payload) if payload.get("object") == "whatsapp_business_account" else 0
     return jsonify({"ok": True, "imported": imported})
+
+
+def verify_whatsapp_webhook_fixed():
+    accepted = {item for item in [whatsapp_live.WHATSAPP_VERIFY_TOKEN, crm_module.META_VERIFY_TOKEN, FALLBACK_VERIFY_TOKEN] if item}
+    if request.args.get("hub.mode") == "subscribe" and request.args.get("hub.verify_token") in accepted:
+        return Response(request.args.get("hub.challenge") or "", status=200, mimetype="text/plain")
+    abort(403)
 
 
 def receive_meta_webhook_fixed():
@@ -91,4 +99,5 @@ def whatsapp_diagnostics():
 
 
 app.view_functions["receive_whatsapp_webhook"] = receive_whatsapp_webhook_fixed
+app.view_functions["verify_whatsapp_webhook"] = verify_whatsapp_webhook_fixed
 app.view_functions["receive_webhook"] = receive_meta_webhook_fixed
