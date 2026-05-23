@@ -5,7 +5,12 @@ import os
 import requests
 from flask import jsonify
 
-from app_live_new import app, crm_module
+try:
+    import app as crm_module
+except ImportError:
+    import app_live_new as crm_module
+
+app = crm_module.app
 
 META_APP_ID = os.getenv("META_APP_ID", "1528469058632372")
 
@@ -35,16 +40,20 @@ NOT_NEEDED_NOW = {
 
 
 def debug_page_token():
-    if not crm_module.META_PAGE_ACCESS_TOKEN:
+    page_access_token = getattr(crm_module, "META_PAGE_ACCESS_TOKEN", "")
+    app_secret = getattr(crm_module, "META_APP_SECRET", "") or os.getenv("WHATSAPP_APP_SECRET", "")
+    graph_api_version = getattr(crm_module, "GRAPH_API_VERSION", "v21.0")
+
+    if not page_access_token:
         return {"ok": False, "error": "META_PAGE_ACCESS_TOKEN missing"}
-    if not crm_module.META_APP_SECRET:
+    if not app_secret:
         return {"ok": False, "error": "META_APP_SECRET missing"}
 
     response = requests.get(
-        f"https://graph.facebook.com/{crm_module.GRAPH_API_VERSION}/debug_token",
+        f"https://graph.facebook.com/{graph_api_version}/debug_token",
         params={
-            "input_token": crm_module.META_PAGE_ACCESS_TOKEN,
-            "access_token": f"{META_APP_ID}|{crm_module.META_APP_SECRET}",
+            "input_token": page_access_token,
+            "access_token": f"{META_APP_ID}|{app_secret}",
         },
         timeout=20,
     )
