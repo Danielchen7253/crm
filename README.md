@@ -60,10 +60,11 @@ Not needed now:
 - `pages_manage_posts`
 - `public_profile`
 
-Permission diagnostic endpoint:
+Permission diagnostic endpoints:
 
 ```text
 https://crm-8t7y.onrender.com/admin/meta/permissions
+https://crm-8t7y.onrender.com/admin/meta/permission-checks
 ```
 
 ## Database
