@@ -23,7 +23,7 @@ CORE_META_PERMISSIONS = {
 }
 
 USEFUL_LATER_PERMISSIONS = {
-    "pages_read_user_content": "Read Page visitor posts, comments, ratings, and other user-generated Page content.",
+    "pages_read_user_content": "Read Page visitor posts, comments, ratings, and other Page user-generated content.",
     "pages_manage_engagement": "Manage Page comments and engagement from CRM later.",
     "read_insights": "Read Page/app performance metrics for reports.",
     "business_management": "Manage business assets such as WABA, system users, and business settings.",
@@ -61,12 +61,25 @@ def debug_page_token():
     return {"ok": True, "data": response.json().get("data", {})}
 
 
+def redacted_error(error):
+    text = str(error)
+    secrets = [
+        getattr(crm_module, "META_PAGE_ACCESS_TOKEN", ""),
+        getattr(crm_module, "META_APP_SECRET", ""),
+        os.getenv("WHATSAPP_APP_SECRET", ""),
+    ]
+    for secret in secrets:
+        if secret:
+            text = text.replace(secret, "[redacted]")
+    return text
+
+
 @app.get("/admin/meta/permissions")
 def meta_permissions():
     try:
         token_debug = debug_page_token()
     except requests.RequestException as error:
-        token_debug = {"ok": False, "error": str(error)}
+        token_debug = {"ok": False, "error": redacted_error(error)}
 
     scopes = set()
     if token_debug.get("ok"):
