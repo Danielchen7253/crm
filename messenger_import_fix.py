@@ -103,5 +103,10 @@ def import_messenger_conversations_fixed():
     return jsonify({"ok": True, **result})
 
 
+@app.post("/admin/import/messenger-conversations/all")
+def import_messenger_conversations_all():
+    return import_messenger_conversations_fixed()
+
+
 crm_module.sync_messenger_conversations_paginated = sync_messenger_conversations_all_folders
 app.view_functions["import_messenger_conversations"] = import_messenger_conversations_fixed
