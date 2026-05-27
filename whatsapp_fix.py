@@ -7,7 +7,12 @@ import os
 import requests
 from flask import Response, abort, jsonify, request
 
-from app_live_new import app, crm_module
+try:
+    import app as crm_module
+except ImportError:
+    import app_live_new as crm_module
+
+app = crm_module.app
 import whatsapp_live
 
 WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "")
@@ -68,6 +73,21 @@ def receive_meta_webhook_fixed():
 
 
 def whatsapp_diagnostics_fixed():
+    def safe_whatsapp_graph(path, params=None):
+        try:
+            return {"ok": True, "data": whatsapp_live.whatsapp_graph_get(path, params or {})}
+        except requests.RequestException as error:
+            response = getattr(error, "response", None)
+            detail = None
+            if response is not None:
+                try:
+                    detail = response.json()
+                except ValueError:
+                    detail = response.text[:500]
+            return {"ok": False, "error": str(error), "detail": detail}
+        except RuntimeError as error:
+            return {"ok": False, "error": str(error)}
+
     try:
         customers = crm_module.sb_get_all("customers", {"select": "source"}, page_size=1000, max_rows=50000)
         whatsapp_messages = crm_module.sb_get("messages", {"provider": "eq.whatsapp", "select": "id", "limit": "1"})
@@ -93,8 +113,50 @@ def whatsapp_diagnostics_fixed():
                 "whatsapp_customers": sum(1 for row in customers if row.get("source") == "whatsapp"),
                 "has_whatsapp_messages": bool(whatsapp_messages),
             },
+            "graph": {
+                "phone_number": safe_whatsapp_graph(
+                    whatsapp_live.WHATSAPP_PHONE_NUMBER_ID,
+                    {"fields": "id,display_phone_number,verified_name,quality_rating,name_status,platform_type"},
+                )
+                if whatsapp_live.WHATSAPP_PHONE_NUMBER_ID
+                else {"ok": False, "error": "WHATSAPP_PHONE_NUMBER_ID missing"},
+                "business_account": safe_whatsapp_graph(
+                    whatsapp_live.WHATSAPP_BUSINESS_ACCOUNT_ID,
+                    {"fields": "id,name,account_review_status"},
+                )
+                if whatsapp_live.WHATSAPP_BUSINESS_ACCOUNT_ID
+                else {"ok": False, "error": "WHATSAPP_BUSINESS_ACCOUNT_ID missing"},
+                "subscribed_apps": safe_whatsapp_graph(f"{whatsapp_live.WHATSAPP_BUSINESS_ACCOUNT_ID}/subscribed_apps")
+                if whatsapp_live.WHATSAPP_BUSINESS_ACCOUNT_ID
+                else {"ok": False, "error": "WHATSAPP_BUSINESS_ACCOUNT_ID missing"},
+                "message_templates": safe_whatsapp_graph(
+                    f"{whatsapp_live.WHATSAPP_BUSINESS_ACCOUNT_ID}/message_templates",
+                    {"limit": "5"},
+                )
+                if whatsapp_live.WHATSAPP_BUSINESS_ACCOUNT_ID
+                else {"ok": False, "error": "WHATSAPP_BUSINESS_ACCOUNT_ID missing"},
+            },
         }
     )
+
+
+def whatsapp_subscribe_app():
+    if not whatsapp_live.WHATSAPP_BUSINESS_ACCOUNT_ID:
+        return jsonify({"ok": False, "error": "WHATSAPP_BUSINESS_ACCOUNT_ID is required."}), 400
+    try:
+        result = whatsapp_live.whatsapp_graph_post(f"{whatsapp_live.WHATSAPP_BUSINESS_ACCOUNT_ID}/subscribed_apps", {})
+    except requests.RequestException as error:
+        response = getattr(error, "response", None)
+        detail = None
+        if response is not None:
+            try:
+                detail = response.json()
+            except ValueError:
+                detail = response.text[:500]
+        return jsonify({"ok": False, "error": str(error), "detail": detail}), 502
+    except RuntimeError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify({"ok": True, "result": result})
 
 
 app.view_functions["receive_whatsapp_webhook"] = receive_whatsapp_webhook_fixed
@@ -104,3 +166,4 @@ if "whatsapp_diagnostics" in app.view_functions:
     app.view_functions["whatsapp_diagnostics"] = whatsapp_diagnostics_fixed
 else:
     app.add_url_rule("/admin/whatsapp/diagnostics", "whatsapp_diagnostics", whatsapp_diagnostics_fixed, methods=["GET"])
+app.add_url_rule("/admin/whatsapp/subscribe-app", "whatsapp_subscribe_app", whatsapp_subscribe_app, methods=["POST"])
