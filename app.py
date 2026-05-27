@@ -192,9 +192,25 @@ def get_profile(psid):
     if not META_PAGE_ACCESS_TOKEN:
         return {}
     try:
-        return graph_get(psid, {"fields": "first_name,last_name,name,profile_pic,locale,timezone,gender"})
+        return graph_get(psid, {"fields": "first_name,last_name,name,profile_pic,picture,locale,timezone,gender"})
     except requests.RequestException:
         return {}
+
+
+def profile_picture_url(profile):
+    if not isinstance(profile, dict):
+        return None
+    direct_url = profile.get("profile_pic_url") or profile.get("profile_pic")
+    if direct_url:
+        return direct_url
+    picture = profile.get("picture")
+    if isinstance(picture, dict):
+        data = picture.get("data")
+        if isinstance(data, dict) and data.get("url"):
+            return data["url"]
+        if picture.get("url"):
+            return picture["url"]
+    return None
 
 
 def display_name(profile, fallback):
@@ -221,7 +237,13 @@ def find_identity_by_customer(customer_id):
 
 
 def complete_profile(psid, known_profile=None):
-    return {**(known_profile or {}), **get_profile(psid)}
+    known_profile = known_profile or {}
+    fetched_profile = get_profile(psid)
+    profile = {**known_profile, **fetched_profile}
+    known_picture_url = profile_picture_url(known_profile)
+    if known_picture_url and not profile_picture_url(profile):
+        profile["profile_pic_url"] = known_picture_url
+    return profile
 
 
 def ensure_customer(psid, profile=None):
@@ -229,8 +251,9 @@ def ensure_customer(psid, profile=None):
     name = display_name(profile, f"Messenger {psid[-6:]}")
     identity = find_identity(psid)
     profile_payload = {"display_name": name, "updated_at": now_iso()}
-    if profile.get("profile_pic"):
-        profile_payload["profile_pic_url"] = profile["profile_pic"]
+    picture_url = profile_picture_url(profile)
+    if picture_url:
+        profile_payload["profile_pic_url"] = picture_url
     if profile.get("locale"):
         profile_payload["locale"] = profile["locale"]
     if profile.get("timezone") is not None:
@@ -610,7 +633,7 @@ def import_conversation(conversation):
 def sync_messenger_conversations_paginated(max_pages=200, page_limit=100, messages_limit=25):
     if not META_PAGE_ID or not META_PAGE_ACCESS_TOKEN:
         raise RuntimeError("META_PAGE_ID and META_PAGE_ACCESS_TOKEN are required.")
-    fields = f"participants{{id,name,profile_pic}},messages.limit({messages_limit}){{id,message,from,to,created_time,attachments}}"
+    fields = f"participants{{id,name,profile_pic,picture}},messages.limit({messages_limit}){{id,message,from,to,created_time,attachments}}"
     page = graph_get(f"{META_PAGE_ID}/conversations", {"fields": fields, "limit": str(page_limit)})
     pages = 0
     conversations_seen = 0
@@ -672,6 +695,70 @@ def meta_diagnostics():
                 "count_returned": len(conversations.get("data", [])) if isinstance(conversations, dict) else 0,
                 "has_next_page": bool(conversations.get("paging", {}).get("next")) if isinstance(conversations, dict) else False,
             },
+        }
+    )
+
+
+@app.post("/admin/backfill/messenger-profiles")
+def backfill_messenger_profiles():
+    if not META_PAGE_ACCESS_TOKEN:
+        return jsonify({"ok": False, "error": "META_PAGE_ACCESS_TOKEN missing"}), 400
+
+    limit = max(1, min(int(request.args.get("limit", "500")), 5000))
+    identities = sb_get_all(
+        "customer_identities",
+        {
+            "provider": "eq.messenger",
+            "select": "customer_id,provider_user_id,raw_profile",
+            "limit": str(limit),
+        },
+        max_rows=limit,
+    )
+    checked = 0
+    updated = 0
+    skipped = 0
+    errors = []
+
+    for identity in identities:
+        psid = identity.get("provider_user_id")
+        customer_id = identity.get("customer_id")
+        if not psid or not customer_id:
+            skipped += 1
+            continue
+        checked += 1
+        try:
+            profile = complete_profile(psid, identity.get("raw_profile") or {})
+            name = display_name(profile, f"Messenger {psid[-6:]}")
+            picture_url = profile_picture_url(profile)
+            payload = {"display_name": name, "updated_at": now_iso()}
+            if picture_url:
+                payload["profile_pic_url"] = picture_url
+            if profile.get("locale"):
+                payload["locale"] = profile["locale"]
+            if profile.get("timezone") is not None:
+                payload["timezone"] = str(profile["timezone"])
+            if profile.get("gender"):
+                payload["gender"] = profile["gender"]
+            sb_patch("customers", payload, {"id": f"eq.{customer_id}"})
+            sb_patch(
+                "customer_identities",
+                {"display_name": name, "raw_profile": profile, "updated_at": now_iso()},
+                {"provider": "eq.messenger", "provider_user_id": f"eq.{psid}"},
+            )
+            updated += 1
+        except requests.RequestException as error:
+            errors.append({"psid": psid, "error": str(error)})
+        except Exception as error:
+            errors.append({"psid": psid, "error": str(error)})
+
+    return jsonify(
+        {
+            "ok": True,
+            "checked": checked,
+            "updated": updated,
+            "skipped": skipped,
+            "errors": errors[:20],
+            "error_count": len(errors),
         }
     )
 

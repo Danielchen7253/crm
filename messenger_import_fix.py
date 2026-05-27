@@ -50,7 +50,7 @@ def sync_messenger_conversations_all_folders(max_pages=200, page_limit=100, mess
         raise RuntimeError("META_PAGE_ID and META_PAGE_ACCESS_TOKEN are required.")
 
     fields = (
-        f"participants{{id,name,profile_pic}},"
+        f"participants{{id,name,profile_pic,picture}},"
         f"messages.limit({messages_limit}){{id,message,from,to,created_time,attachments}}"
     )
     seen_conversations = set()
