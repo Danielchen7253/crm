@@ -17,7 +17,7 @@ META_PAGE_ID = os.getenv("META_PAGE_ID", "")
 AUTO_SYNC_SECONDS = float(os.getenv("CRM_AUTO_SYNC_SECONDS", "2"))
 AUTO_SYNC_STATE = {"started": False, "last_ok": None, "last_error": None, "runs": 0, "imported": 0}
 CLOSED_TAG = "\u6210\u4ea4\u5ba2\u6237"
-CRM_ADMIN_PASSWORD = os.getenv("CRM_ADMIN_PASSWORD", "Coolfix2026!")
+CRM_ADMIN_PASSWORD = os.getenv("CRM_ADMIN_PASSWORD", "")
 CRM_SESSION_SECRET = os.getenv("CRM_SESSION_SECRET") or os.getenv("META_APP_SECRET") or os.getenv("SUPABASE_SERVICE_ROLE_KEY") or "dev-crm-session-secret"
 app.secret_key = CRM_SESSION_SECRET
 
