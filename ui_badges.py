@@ -12,6 +12,9 @@ BADGE_CSS = (
     ".source-messenger{border-color:#cfe1ff}"
     ".source-whatsapp{border-color:#b7ebc6}"
     ".source-other{background:#6b7280}"
+    ".last-line{display:grid;grid-template-columns:22px minmax(0,1fr) auto;align-items:center;gap:6px;min-width:0}"
+    ".last-preview{min-width:0;color:#6a7682;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
+    ".last-time{color:#8a96a3;font-size:11px;white-space:nowrap;justify-self:end}"
 )
 
 TARGET_CSS = (
@@ -28,12 +31,13 @@ CUSTOMER_ROW_NEW = (
     CUSTOMER_ROW_PREFIX
     + '<div class="customer-info">'
     '<div class="customer-name">{{ customer.display_name or \'Customer\' }}</div>'
-    '<div class="source-line">'
+    '<div class="last-line">'
     '<span class="source-logo {% if customer.source == \'whatsapp\' %}source-whatsapp{% elif customer.source == \'messenger\' %}source-messenger{% else %}source-other{% endif %}" '
     'title="{{ customer.source }}">'
     "{% if customer.source == 'whatsapp' %}<img src=\"https://upload.wikimedia.org/wikipedia/commons/5/5e/WhatsApp_icon.png\" alt=\"WhatsApp\">{% elif customer.source == 'messenger' %}<img src=\"https://upload.wikimedia.org/wikipedia/commons/6/63/Facebook_Messenger_logo_2025.svg\" alt=\"Messenger\">{% else %}{{ (customer.source or '?')[:2]|upper }}{% endif %}"
     "</span>"
-    '<span class="rule-meta">{{ customer.source }}</span>'
+    '<span class="last-preview">{{ customer.last_message_preview or customer.source }}</span>'
+    '<span class="last-time">{{ customer.last_message_time_short }}</span>'
     "</div>"
     "</div>"
 )

@@ -235,6 +235,50 @@ def fixed_reply_for(text):
 crm_module.fixed_reply_for = fixed_reply_for
 
 
+def format_last_message_time(value):
+    if not value:
+        return ""
+    return str(value).replace("T", " ")[:16]
+
+
+def message_preview(message):
+    text = (message.get("text") or "").strip()
+    if text:
+        return " ".join(text.split())
+    attachments = message.get("attachments") or []
+    if attachments:
+        return "附件"
+    return message.get("message_type") or "消息"
+
+
+def attach_last_message_preview(customers):
+    if not customers:
+        return
+    ids = {customer["id"] for customer in customers}
+    rows = crm_module.sb_get(
+        "messages",
+        {
+            "select": "customer_id,text,message_type,attachments,sent_at",
+            "order": "sent_at.desc",
+            "limit": "5000",
+        },
+    )
+    seen = set()
+    for row in rows:
+        customer_id = row.get("customer_id")
+        if customer_id not in ids or customer_id in seen:
+            continue
+        seen.add(customer_id)
+        for customer in customers:
+            if customer["id"] == customer_id:
+                customer["last_message_preview"] = message_preview(row)
+                customer["last_message_time_short"] = format_last_message_time(row.get("sent_at"))
+                break
+    for customer in customers:
+        customer.setdefault("last_message_preview", "")
+        customer.setdefault("last_message_time_short", format_last_message_time(customer.get("last_message_at")))
+
+
 def load_workspace(selected_id):
     view = request.args.get("view", "unclassified")
     customers = crm_module.sb_get_all(
@@ -245,6 +289,7 @@ def load_workspace(selected_id):
     )
     for customer in customers:
         customer["tags"] = customer_tags(customer)
+    attach_last_message_preview(customers)
     customer_pool = filtered_customers(customers, view)
     if view == "ai":
         selected_id = None
