@@ -4,7 +4,7 @@ import app_live_new
 
 
 BADGE_CSS = (
-    ".customer-info{min-width:0;display:grid;gap:5px}"
+    ".customer-info{min-width:0;display:grid;gap:5px;width:100%;justify-self:stretch}"
     ".source-line{display:flex;align-items:center;gap:6px;min-width:0}"
     ".source-logo{display:inline-flex;align-items:center;justify-content:center;flex:none;"
     "width:22px;height:22px;border-radius:50%;overflow:hidden;background:#fff;border:1px solid #d8dee8}"
@@ -12,7 +12,7 @@ BADGE_CSS = (
     ".source-messenger{border-color:#cfe1ff}"
     ".source-whatsapp{border-color:#b7ebc6}"
     ".source-other{background:#6b7280}"
-    ".last-line{display:grid;grid-template-columns:22px minmax(0,1fr) auto;align-items:center;gap:6px;min-width:0}"
+    ".last-line{display:grid;grid-template-columns:22px minmax(0,1fr) auto;align-items:center;gap:6px;min-width:0;width:100%}"
     ".last-preview{min-width:0;color:#6a7682;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
     ".last-time{color:#8a96a3;font-size:11px;white-space:nowrap;justify-self:end}"
 )
