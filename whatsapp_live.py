@@ -305,6 +305,16 @@ def live_send_customer_message(customer_id):
     text = request.form.get("text", "").strip()
     ai_draft_id = request.form.get("ai_draft_id", "").strip()
     identity = find_customer_identity(customer_id)
+    wants_json = request.headers.get("X-Requested-With") == "fetch" or "application/json" in request.headers.get("Accept", "")
+    sent_at = crm_module.now_iso()
+    if not text:
+        if wants_json:
+            return jsonify({"ok": False, "error": "Message text is required."}), 400
+        return redirect(f"/?customer={customer_id}", code=303)
+    if not identity:
+        if wants_json:
+            return jsonify({"ok": False, "error": "Customer messaging identity was not found."}), 400
+        return redirect(f"/?customer={customer_id}", code=303)
     if text and identity:
         if identity.get("provider") == "whatsapp":
             if not WHATSAPP_PHONE_NUMBER_ID:
@@ -314,19 +324,22 @@ def live_send_customer_message(customer_id):
                 {"messaging_product": "whatsapp", "to": identity["provider_user_id"], "type": "text", "text": {"body": text}},
             )
             message_id = ((result.get("messages") or [{}])[0]).get("id")
-            save_whatsapp_message(customer_id, message_id, "outbound", text, [], result, crm_module.now_iso())
+            save_whatsapp_message(customer_id, message_id, "outbound", text, [], result, sent_at)
         else:
             result = crm_module.graph_post(
                 "me/messages",
                 {"recipient": {"id": identity["provider_user_id"]}, "messaging_type": "RESPONSE", "message": {"text": text}},
             )
-            crm_module.save_message(customer_id, result.get("message_id"), "outbound", text, [], result, crm_module.now_iso())
+            message_id = result.get("message_id")
+            crm_module.save_message(customer_id, message_id, "outbound", text, [], result, sent_at)
         if ai_draft_id:
             crm_module.sb_patch(
                 "ai_reply_drafts",
                 {"final_text": text, "status": "sent", "updated_at": crm_module.now_iso()},
                 {"id": f"eq.{ai_draft_id}"},
             )
+        if wants_json:
+            return jsonify({"ok": True, "message": {"direction": "outbound", "text": text, "sent_at": sent_at, "provider_message_id": message_id}})
     return redirect(f"/?customer={customer_id}", code=303)
 
 
