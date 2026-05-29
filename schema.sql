@@ -52,6 +52,20 @@ create index if not exists idx_messages_customer_sent_at
 create index if not exists idx_customers_last_seen
   on customers(last_seen_at desc);
 
+create table if not exists promotion_posts (
+  id uuid primary key default gen_random_uuid(),
+  title text,
+  content text not null,
+  channel text not null default 'facebook_page',
+  status text not null default 'draft',
+  raw_result jsonb not null default '{}',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_promotion_posts_created_at
+  on promotion_posts(created_at desc);
+
 -- Required for Supabase Realtime browser updates.
 -- Run this once if the messages table is not already enabled in Realtime.
 do $$
