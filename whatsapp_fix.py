@@ -167,3 +167,56 @@ if "whatsapp_diagnostics" in app.view_functions:
 else:
     app.add_url_rule("/admin/whatsapp/diagnostics", "whatsapp_diagnostics", whatsapp_diagnostics_fixed, methods=["GET"])
 app.add_url_rule("/admin/whatsapp/subscribe-app", "whatsapp_subscribe_app", whatsapp_subscribe_app, methods=["POST"])
+
+
+@app.post("/admin/backfill/whatsapp-profiles")
+def backfill_whatsapp_profiles():
+    try:
+        identities = crm_module.sb_get_all(
+            "customer_identities",
+            {
+                "provider": "eq.whatsapp",
+                "select": "customer_id,provider_user_id,display_name,raw_profile",
+            },
+            page_size=1000,
+            max_rows=50000,
+        )
+    except requests.RequestException as error:
+        return jsonify({"ok": False, "error": str(error)}), 502
+
+    updated = 0
+    skipped = 0
+    errors = []
+    for identity in identities:
+        customer_id = identity.get("customer_id")
+        wa_id = identity.get("provider_user_id")
+        if not customer_id or not wa_id:
+            skipped += 1
+            continue
+        profile = identity.get("raw_profile") or {}
+        name = profile.get("name") or identity.get("display_name") or f"WhatsApp {wa_id[-6:]}"
+        picture_url = whatsapp_live.whatsapp_profile_picture_url(profile) or whatsapp_live.WHATSAPP_DEFAULT_AVATAR_URL
+        try:
+            crm_module.sb_patch(
+                "customers",
+                {
+                    "display_name": name,
+                    "profile_pic_url": picture_url,
+                    "updated_at": crm_module.now_iso(),
+                },
+                {"id": f"eq.{customer_id}"},
+            )
+            crm_module.sb_patch(
+                "customer_identities",
+                {
+                    "display_name": name,
+                    "raw_profile": {**profile, "name": name, "wa_id": wa_id, "profile_pic_url": picture_url},
+                    "updated_at": crm_module.now_iso(),
+                },
+                {"provider": "eq.whatsapp", "provider_user_id": f"eq.{wa_id}"},
+            )
+            updated += 1
+        except requests.RequestException as error:
+            errors.append({"wa_id": wa_id, "error": str(error)})
+
+    return jsonify({"ok": True, "checked": len(identities), "updated": updated, "skipped": skipped, "error_count": len(errors), "errors": errors[:20]})

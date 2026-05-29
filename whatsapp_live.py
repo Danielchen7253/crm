@@ -16,6 +16,7 @@ WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "")
 WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
 WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
 WHATSAPP_BUSINESS_ACCOUNT_ID = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID", "")
+WHATSAPP_DEFAULT_AVATAR_URL = "https://upload.wikimedia.org/wikipedia/commons/5/5e/WhatsApp_icon.png"
 
 
 def whatsapp_headers(content_type=True):
@@ -96,10 +97,30 @@ def find_customer_identity(customer_id):
     return next((row for row in rows if row.get("provider") == source), rows[0])
 
 
+def whatsapp_profile_picture_url(profile):
+    if not isinstance(profile, dict):
+        return None
+    for key in ["profile_pic_url", "profile_pic", "picture_url", "avatar_url"]:
+        value = profile.get(key)
+        if isinstance(value, str) and value.startswith("http"):
+            return value
+    picture = profile.get("picture")
+    if isinstance(picture, str) and picture.startswith("http"):
+        return picture
+    if isinstance(picture, dict):
+        data = picture.get("data")
+        if isinstance(data, dict) and isinstance(data.get("url"), str):
+            return data["url"]
+        if isinstance(picture.get("url"), str):
+            return picture["url"]
+    return None
+
+
 def ensure_whatsapp_customer(wa_id, profile, metadata):
     name = profile.get("name") or f"WhatsApp {wa_id[-6:]}"
     identity = find_provider_identity("whatsapp", wa_id)
-    profile_payload = {"display_name": name, "updated_at": crm_module.now_iso()}
+    profile_pic_url = whatsapp_profile_picture_url(profile) or WHATSAPP_DEFAULT_AVATAR_URL
+    profile_payload = {"display_name": name, "profile_pic_url": profile_pic_url, "updated_at": crm_module.now_iso()}
     if identity:
         customer_id = identity["customer_id"]
         crm_module.sb_patch(
@@ -172,7 +193,7 @@ def contact_profile(value, wa_id):
     contacts = value.get("contacts") or []
     contact = next((item for item in contacts if item.get("wa_id") == wa_id), {})
     profile = contact.get("profile") or {}
-    return {"name": profile.get("name") or wa_id, "wa_id": wa_id}
+    return {**profile, "name": profile.get("name") or wa_id, "wa_id": wa_id}
 
 
 def message_text(message):
