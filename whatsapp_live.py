@@ -102,16 +102,16 @@ def whatsapp_profile_picture_url(profile):
         return None
     for key in ["profile_pic_url", "profile_pic", "picture_url", "avatar_url"]:
         value = profile.get(key)
-        if isinstance(value, str) and value.startswith("http"):
+        if isinstance(value, str) and value.startswith("http") and value != WHATSAPP_DEFAULT_AVATAR_URL:
             return value
     picture = profile.get("picture")
-    if isinstance(picture, str) and picture.startswith("http"):
+    if isinstance(picture, str) and picture.startswith("http") and picture != WHATSAPP_DEFAULT_AVATAR_URL:
         return picture
     if isinstance(picture, dict):
         data = picture.get("data")
-        if isinstance(data, dict) and isinstance(data.get("url"), str):
+        if isinstance(data, dict) and isinstance(data.get("url"), str) and data["url"] != WHATSAPP_DEFAULT_AVATAR_URL:
             return data["url"]
-        if isinstance(picture.get("url"), str):
+        if isinstance(picture.get("url"), str) and picture["url"] != WHATSAPP_DEFAULT_AVATAR_URL:
             return picture["url"]
     return None
 
@@ -119,8 +119,10 @@ def whatsapp_profile_picture_url(profile):
 def ensure_whatsapp_customer(wa_id, profile, metadata):
     name = profile.get("name") or f"WhatsApp {wa_id[-6:]}"
     identity = find_provider_identity("whatsapp", wa_id)
-    profile_pic_url = whatsapp_profile_picture_url(profile) or WHATSAPP_DEFAULT_AVATAR_URL
-    profile_payload = {"display_name": name, "profile_pic_url": profile_pic_url, "updated_at": crm_module.now_iso()}
+    profile_pic_url = whatsapp_profile_picture_url(profile)
+    profile_payload = {"display_name": name, "updated_at": crm_module.now_iso()}
+    if profile_pic_url:
+        profile_payload["profile_pic_url"] = profile_pic_url
     if identity:
         customer_id = identity["customer_id"]
         crm_module.sb_patch(

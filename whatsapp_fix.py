@@ -195,7 +195,12 @@ def backfill_whatsapp_profiles():
             continue
         profile = identity.get("raw_profile") or {}
         name = profile.get("name") or identity.get("display_name") or f"WhatsApp {wa_id[-6:]}"
-        picture_url = whatsapp_live.whatsapp_profile_picture_url(profile) or whatsapp_live.WHATSAPP_DEFAULT_AVATAR_URL
+        picture_url = whatsapp_live.whatsapp_profile_picture_url(profile)
+        raw_profile = {**profile, "name": name, "wa_id": wa_id}
+        if picture_url:
+            raw_profile["profile_pic_url"] = picture_url
+        else:
+            raw_profile.pop("profile_pic_url", None)
         try:
             crm_module.sb_patch(
                 "customers",
@@ -210,7 +215,7 @@ def backfill_whatsapp_profiles():
                 "customer_identities",
                 {
                     "display_name": name,
-                    "raw_profile": {**profile, "name": name, "wa_id": wa_id, "profile_pic_url": picture_url},
+                    "raw_profile": raw_profile,
                     "updated_at": crm_module.now_iso(),
                 },
                 {"provider": "eq.whatsapp", "provider_user_id": f"eq.{wa_id}"},
