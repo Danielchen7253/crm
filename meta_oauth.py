@@ -49,9 +49,8 @@ def save_setting(key, value, metadata=None):
     }
     response = requests.post(
         f"{crm_module.SUPABASE_URL}/rest/v1/integration_settings",
-        headers={
-            **crm_module.sb_headers("resolution=merge-duplicates,return=representation"),
-        },
+        params={"on_conflict": "provider,key"},
+        headers=crm_module.sb_headers("resolution=merge-duplicates,return=representation"),
         json=row,
         timeout=20,
     )
