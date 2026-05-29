@@ -193,9 +193,26 @@ def get_profile(psid):
     if not META_PAGE_ACCESS_TOKEN:
         return {}
     try:
-        return graph_get(psid, {"fields": "first_name,last_name,name,profile_pic,picture,locale,timezone,gender"})
+        profile = graph_get(psid, {"fields": "first_name,last_name,name,profile_pic,picture,locale,timezone,gender"})
+        if not profile_picture_url(profile):
+            picture_url = get_profile_picture_edge(psid)
+            if picture_url:
+                profile["profile_pic_url"] = picture_url
+        return profile
     except requests.RequestException:
         return {}
+
+
+def get_profile_picture_edge(psid):
+    try:
+        payload = graph_get(f"{psid}/picture", {"redirect": "false", "type": "large", "width": "512", "height": "512"})
+    except requests.RequestException:
+        return None
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict) or data.get("is_silhouette"):
+        return None
+    url = data.get("url")
+    return url if isinstance(url, str) and url.startswith("http") and url != MESSENGER_DEFAULT_AVATAR_URL else None
 
 
 def profile_picture_url(profile):
