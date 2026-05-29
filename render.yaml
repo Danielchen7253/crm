@@ -28,3 +28,9 @@ services:
         sync: false
       - key: WHATSAPP_BUSINESS_ACCOUNT_ID
         sync: false
+      - key: SHOPIFY_STORE_DOMAIN
+        sync: false
+      - key: SHOPIFY_ADMIN_ACCESS_TOKEN
+        sync: false
+      - key: SHOPIFY_API_VERSION
+        sync: false
