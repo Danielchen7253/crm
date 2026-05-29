@@ -298,20 +298,21 @@ def latest_signature():
 
 
 def sync_latest_messenger():
-    if not META_PAGE_ID:
+    page_id = crm_module.current_meta_page_id()
+    if not page_id:
         return 0
     conversations = crm_module.graph_get(
-        f"{META_PAGE_ID}/conversations",
+        f"{page_id}/conversations",
         {"fields": "participants{id,name,profile_pic,picture},messages.limit(3){id,message,from,to,created_time,attachments}", "limit": "1"},
     )
     imported = 0
     for conversation in conversations.get("data", []):
-        people = [p for p in conversation.get("participants", {}).get("data", []) if p.get("id") != META_PAGE_ID]
+        people = [p for p in conversation.get("participants", {}).get("data", []) if p.get("id") != page_id]
         if not people:
             continue
         customer_id, _ = crm_module.ensure_customer(people[0]["id"], people[0])
         for message in conversation.get("messages", {}).get("data", []):
-            direction = "outbound" if message.get("from", {}).get("id") == META_PAGE_ID else "inbound"
+            direction = "outbound" if message.get("from", {}).get("id") == page_id else "inbound"
             saved = crm_module.save_message(customer_id, message.get("id"), direction, message.get("message"), message.get("attachments", {}).get("data", []), message, message.get("created_time"))
             if saved:
                 imported += 1

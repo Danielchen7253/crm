@@ -9,7 +9,8 @@ MESSENGER_CONVERSATION_FOLDERS = ["", "inbox", "page_done", "other", "spam"]
 
 
 def import_messenger_folder(folder, fields, max_pages, page_limit, seen_conversations):
-    path = f"{crm_module.META_PAGE_ID}/conversations/{folder}" if folder else f"{crm_module.META_PAGE_ID}/conversations"
+    page_id = crm_module.current_meta_page_id()
+    path = f"{page_id}/conversations/{folder}" if folder else f"{page_id}/conversations"
     page = crm_module.graph_get(path, {"fields": fields, "limit": str(page_limit)})
     pages = 0
     conversations_seen = 0
@@ -46,7 +47,7 @@ def import_messenger_folder(folder, fields, max_pages, page_limit, seen_conversa
 
 
 def sync_messenger_conversations_all_folders(max_pages=200, page_limit=100, messages_limit=25):
-    if not crm_module.META_PAGE_ID or not crm_module.META_PAGE_ACCESS_TOKEN:
+    if not crm_module.current_meta_page_id() or not crm_module.current_meta_page_access_token():
         raise RuntimeError("META_PAGE_ID and META_PAGE_ACCESS_TOKEN are required.")
 
     fields = (

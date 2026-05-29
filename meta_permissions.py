@@ -48,8 +48,8 @@ NOT_NEEDED_NOW = {
 
 
 def debug_page_token():
-    page_access_token = getattr(crm_module, "META_PAGE_ACCESS_TOKEN", "")
-    app_secret = getattr(crm_module, "META_APP_SECRET", "") or os.getenv("WHATSAPP_APP_SECRET", "")
+    page_access_token = crm_module.current_meta_page_access_token()
+    app_secret = crm_module.current_meta_app_secret()
     graph_api_version = getattr(crm_module, "GRAPH_API_VERSION", "v21.0")
 
     if not page_access_token:
@@ -70,7 +70,7 @@ def debug_page_token():
 
 
 def graph_get(path, params=None):
-    page_access_token = getattr(crm_module, "META_PAGE_ACCESS_TOKEN", "")
+    page_access_token = crm_module.current_meta_page_access_token()
     graph_api_version = getattr(crm_module, "GRAPH_API_VERSION", "v21.0")
     if not page_access_token:
         return {"ok": False, "error": "META_PAGE_ACCESS_TOKEN missing"}
@@ -102,7 +102,7 @@ def summarize_graph_result(result):
 
 
 def run_capability_checks(scopes):
-    page_id = getattr(crm_module, "META_PAGE_ID", "")
+    page_id = crm_module.current_meta_page_id()
     checks = {}
 
     if not page_id:
@@ -188,6 +188,9 @@ def redacted_error(error):
     for secret in secrets:
         if secret:
             text = text.replace(secret, "[redacted]")
+    token = crm_module.current_meta_page_access_token()
+    if token:
+        text = text.replace(token, "[redacted]")
     if " for url:" in text:
         text = text.split(" for url:", 1)[0]
     return text

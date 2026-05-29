@@ -64,8 +64,8 @@ def meta_error(error):
 
 
 def messenger_status():
-    page_id = getattr(crm_module, "META_PAGE_ID", "")
-    if not page_id or not getattr(crm_module, "META_PAGE_ACCESS_TOKEN", ""):
+    page_id = crm_module.current_meta_page_id()
+    if not page_id or not crm_module.current_meta_page_access_token():
         return {"ready": False, "items": [{"name": "Messenger token", "ok": False, "detail": "not configured"}]}
     conversations = graph_ok(
         f"{page_id}/conversations",
@@ -115,7 +115,7 @@ def whatsapp_status():
 
 
 def promotion_status():
-    page_id = getattr(crm_module, "META_PAGE_ID", "")
+    page_id = crm_module.current_meta_page_id()
     if not page_id:
         return {"ready": False, "detail": "META_PAGE_ID missing"}
     probe = graph_ok(page_id, {"fields": "id,name"})
@@ -207,7 +207,7 @@ def promotion_post_submit():
     }
     if action == "publish" and channel == "facebook_page":
         try:
-            result = crm_module.graph_post(f"{crm_module.META_PAGE_ID}/feed", {"message": content})
+            result = crm_module.graph_post(f"{crm_module.current_meta_page_id()}/feed", {"message": content})
             payload["status"] = "published"
             payload["raw_result"] = result
             save_promotion_record(payload)

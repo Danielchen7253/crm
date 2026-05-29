@@ -11,7 +11,8 @@ app = Flask(__name__)
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "")
-META_APP_SECRET = os.getenv("META_APP_SECRET", "")
+META_APP_ID = os.getenv("META_APP_ID", "1528469058632372")
+META_APP_SECRET = os.getenv("META_APP_SECRET") or os.getenv("WHATSAPP_APP_SECRET", "")
 META_PAGE_ACCESS_TOKEN = os.getenv("META_PAGE_ACCESS_TOKEN", "")
 META_PAGE_ID = os.getenv("META_PAGE_ID", "")
 GRAPH_API_VERSION = os.getenv("GRAPH_API_VERSION", "v21.0")
@@ -150,9 +151,39 @@ def sb_patch(table, payload, params):
     return response.json()
 
 
+META_CONFIG_CACHE = {"loaded_at": None, "data": {}}
+
+
+def load_meta_config(force=False):
+    if not database_ready():
+        return {}
+    now = datetime.now(timezone.utc).timestamp()
+    if not force and META_CONFIG_CACHE["loaded_at"] and now - META_CONFIG_CACHE["loaded_at"] < 30:
+        return META_CONFIG_CACHE["data"]
+    try:
+        rows = sb_get("integration_settings", {"provider": "eq.meta", "select": "key,value"})
+    except requests.RequestException:
+        rows = []
+    data = {row.get("key"): row.get("value") for row in rows if row.get("key")}
+    META_CONFIG_CACHE.update({"loaded_at": now, "data": data})
+    return data
+
+
+def current_meta_page_access_token():
+    return load_meta_config().get("page_access_token") or META_PAGE_ACCESS_TOKEN
+
+
+def current_meta_page_id():
+    return load_meta_config().get("page_id") or META_PAGE_ID
+
+
+def current_meta_app_secret():
+    return load_meta_config().get("app_secret") or META_APP_SECRET
+
+
 def graph_get(path, params=None):
-    params = params or {}
-    params["access_token"] = META_PAGE_ACCESS_TOKEN
+    params = dict(params or {})
+    params["access_token"] = current_meta_page_access_token()
     response = requests.get(
         f"https://graph.facebook.com/{GRAPH_API_VERSION}/{path.lstrip('/')}",
         params=params,
@@ -171,7 +202,7 @@ def graph_get_url(url):
 def graph_post(path, payload):
     response = requests.post(
         f"https://graph.facebook.com/{GRAPH_API_VERSION}/{path.lstrip('/')}",
-        params={"access_token": META_PAGE_ACCESS_TOKEN},
+        params={"access_token": current_meta_page_access_token()},
         json=payload,
         timeout=20,
     )
@@ -180,17 +211,18 @@ def graph_post(path, payload):
 
 
 def verify_meta_signature(raw_body):
-    if not META_APP_SECRET:
+    app_secret = current_meta_app_secret()
+    if not app_secret:
         return True
     signature = request.headers.get("X-Hub-Signature-256", "")
     if not signature.startswith("sha256="):
         return False
-    expected = hmac.new(META_APP_SECRET.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    expected = hmac.new(app_secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(signature, f"sha256={expected}")
 
 
 def get_profile(psid):
-    if not META_PAGE_ACCESS_TOKEN:
+    if not current_meta_page_access_token():
         return {}
     try:
         profile = graph_get(psid, {"fields": "first_name,last_name,name,profile_pic,picture,locale,timezone,gender"})
@@ -628,13 +660,14 @@ def load_dashboard(selected_id):
 
 
 def import_conversation(conversation):
-    people = [p for p in conversation.get("participants", {}).get("data", []) if p.get("id") != META_PAGE_ID]
+    page_id = current_meta_page_id()
+    people = [p for p in conversation.get("participants", {}).get("data", []) if p.get("id") != page_id]
     if not people:
         return {"customer_created": 0, "messages_imported": 0}
     customer_id, created = ensure_customer(people[0]["id"], people[0])
     imported = 0
     for message in conversation.get("messages", {}).get("data", []):
-        direction = "outbound" if message.get("from", {}).get("id") == META_PAGE_ID else "inbound"
+        direction = "outbound" if message.get("from", {}).get("id") == page_id else "inbound"
         if save_message(
             customer_id,
             message.get("id"),
@@ -649,10 +682,11 @@ def import_conversation(conversation):
 
 
 def sync_messenger_conversations_paginated(max_pages=200, page_limit=100, messages_limit=25):
-    if not META_PAGE_ID or not META_PAGE_ACCESS_TOKEN:
+    page_id = current_meta_page_id()
+    if not page_id or not current_meta_page_access_token():
         raise RuntimeError("META_PAGE_ID and META_PAGE_ACCESS_TOKEN are required.")
     fields = f"participants{{id,name,profile_pic,picture}},messages.limit({messages_limit}){{id,message,from,to,created_time,attachments}}"
-    page = graph_get(f"{META_PAGE_ID}/conversations", {"fields": fields, "limit": str(page_limit)})
+    page = graph_get(f"{page_id}/conversations", {"fields": fields, "limit": str(page_limit)})
     pages = 0
     conversations_seen = 0
     customers_created = 0
@@ -687,23 +721,25 @@ def safe_graph_diagnostic(path, params=None):
                 detail = response.json()
             except ValueError:
                 detail = response.text[:500]
-        return {"ok": False, "error": str(error).replace(META_PAGE_ACCESS_TOKEN, "[redacted]"), "detail": detail}
+        token = current_meta_page_access_token()
+        return {"ok": False, "error": str(error).replace(token, "[redacted]"), "detail": detail}
 
 
 @app.get("/admin/meta/diagnostics")
 def meta_diagnostics():
-    page_result = safe_graph_diagnostic(META_PAGE_ID, {"fields": "id,name,category,link"}) if META_PAGE_ID else {"ok": False, "error": "META_PAGE_ID missing"}
+    page_id = current_meta_page_id()
+    page_result = safe_graph_diagnostic(page_id, {"fields": "id,name,category,link"}) if page_id else {"ok": False, "error": "META_PAGE_ID missing"}
     conversations_result = safe_graph_diagnostic(
-        f"{META_PAGE_ID}/conversations",
+        f"{page_id}/conversations",
         {"fields": "id,updated_time,participants{id,name}", "limit": "100"},
-    ) if META_PAGE_ID else {"ok": False, "error": "META_PAGE_ID missing"}
+    ) if page_id else {"ok": False, "error": "META_PAGE_ID missing"}
     conversations = conversations_result.get("data", {}) if conversations_result.get("ok") else {}
     return jsonify(
         {
             "ok": True,
             "configured": {
-                "page_id_present": bool(META_PAGE_ID),
-                "page_token_present": bool(META_PAGE_ACCESS_TOKEN),
+                "page_id_present": bool(page_id),
+                "page_token_present": bool(current_meta_page_access_token()),
                 "graph_api_version": GRAPH_API_VERSION,
             },
             "me": safe_graph_diagnostic("me", {"fields": "id,name"}),
@@ -719,7 +755,7 @@ def meta_diagnostics():
 
 @app.post("/admin/backfill/messenger-profiles")
 def backfill_messenger_profiles():
-    if not META_PAGE_ACCESS_TOKEN:
+    if not current_meta_page_access_token():
         return jsonify({"ok": False, "error": "META_PAGE_ACCESS_TOKEN missing"}), 400
 
     limit = max(1, min(int(request.args.get("limit", "500")), 5000))
