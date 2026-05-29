@@ -17,6 +17,7 @@ META_PAGE_ID = os.getenv("META_PAGE_ID", "")
 GRAPH_API_VERSION = os.getenv("GRAPH_API_VERSION", "v21.0")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+MESSENGER_DEFAULT_AVATAR_URL = "https://upload.wikimedia.org/wikipedia/commons/6/63/Facebook_Messenger_logo_2025.svg"
 
 FIXED_REPLY_RULES = [
     {
@@ -201,14 +202,14 @@ def profile_picture_url(profile):
     if not isinstance(profile, dict):
         return None
     direct_url = profile.get("profile_pic_url") or profile.get("profile_pic")
-    if direct_url:
+    if direct_url and direct_url != MESSENGER_DEFAULT_AVATAR_URL:
         return direct_url
     picture = profile.get("picture")
     if isinstance(picture, dict):
         data = picture.get("data")
-        if isinstance(data, dict) and data.get("url"):
+        if isinstance(data, dict) and data.get("url") and data["url"] != MESSENGER_DEFAULT_AVATAR_URL:
             return data["url"]
-        if picture.get("url"):
+        if picture.get("url") and picture["url"] != MESSENGER_DEFAULT_AVATAR_URL:
             return picture["url"]
     return None
 
