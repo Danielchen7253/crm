@@ -142,14 +142,14 @@ CHANNELS_TEMPLATE = """
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>API 接入状态</title><style>{{ css }}</style></head>
 <body><header class="top"><a class="back" href="/">&lsaquo; CRM</a><h1>API 接入状态</h1></header><main class="wrap">
 <div class="grid">
-{% for title, block in [('Messenger', status.messenger), ('WhatsApp', status.whatsapp)] %}
+{% for title, block in [('Messenger', status['messenger']), ('WhatsApp', status['whatsapp'])] %}
 <section class="card"><h2>{{ title }} <span class="status {{ 'ok' if block.ready else 'warn' }}">{{ '已接入' if block.ready else '部分可用' }}</span></h2><div class="rows">
-{% for item in block.items %}<div class="row"><div><strong>{{ item.name }}</strong><div class="muted">{{ item.detail }}</div></div><span class="status {{ 'ok' if item.ok else 'bad' }}">{{ 'OK' if item.ok else '缺少权限' }}</span></div>{% endfor %}
+{% for item in block['items'] %}<div class="row"><div><strong>{{ item['name'] }}</strong><div class="muted">{{ item['detail'] }}</div></div><span class="status {{ 'ok' if item['ok'] else 'bad' }}">{{ 'OK' if item['ok'] else '缺少权限' }}</span></div>{% endfor %}
 </div></section>
 {% endfor %}
 </div>
-<section class="card"><h2>推广发帖 <span class="status {{ 'ok' if status.promotion.ready else 'warn' }}">{{ '页面已接入' if status.promotion.ready else '等待发帖权限' }}</span></h2>
-<p class="muted">{{ status.promotion.detail }}</p><div class="actions"><a class="button" href="/promotion">打开推广发帖页面</a><form method="post" action="/admin/import/messenger-conversations/all"><button type="submit" class="secondary">同步 Messenger 客户</button></form></div></section>
+<section class="card"><h2>推广发帖 <span class="status {{ 'ok' if status['promotion']['ready'] else 'warn' }}">{{ '页面已接入' if status['promotion']['ready'] else '等待发帖权限' }}</span></h2>
+<p class="muted">{{ status['promotion']['detail'] }}</p><div class="actions"><a class="button" href="/promotion">打开推广发帖页面</a><form method="post" action="/admin/import/messenger-conversations/all"><button type="submit" class="secondary">同步 Messenger 客户</button></form></div></section>
 </main></body></html>
 """
 
@@ -165,7 +165,7 @@ PROMOTION_TEMPLATE = """
 <div class="actions"><button name="action" value="draft" type="submit" class="secondary">保存草稿</button><button name="action" value="publish" type="submit">尝试发布到 Page</button></div>
 </form></section>
 <section class="card"><h2>当前接入状态</h2><div class="rows">
-<div class="row"><div><strong>Facebook Page</strong><div class="muted">{{ promotion.detail }}</div></div><span class="status {{ 'ok' if promotion.ready else 'warn' }}">{{ '已连接' if promotion.ready else '部分可用' }}</span></div>
+<div class="row"><div><strong>Facebook Page</strong><div class="muted">{{ promotion['detail'] }}</div></div><span class="status {{ 'ok' if promotion['ready'] else 'warn' }}">{{ '已连接' if promotion['ready'] else '部分可用' }}</span></div>
 <div class="row"><div><strong>说明</strong><div class="muted">发帖 API 需要 pages_manage_posts。现在页面先接好入口和发布调用；如果 Meta 还没批准，点击发布会显示 Meta 返回的权限错误。</div></div><span class="status warn">按权限启用</span></div>
 </div></section>
 </main></body></html>
