@@ -60,6 +60,59 @@ def save_setting(key, value, metadata=None):
     return response.json()
 
 
+def redacted_error(error):
+    text = str(error)
+    for secret in [
+        crm_module.current_meta_page_access_token(),
+        crm_module.current_meta_app_secret(),
+        crm_module.SUPABASE_SERVICE_ROLE_KEY,
+    ]:
+        if secret:
+            text = text.replace(secret, "[redacted]")
+    response = getattr(error, "response", None)
+    if response is not None:
+        try:
+            detail = response.json()
+            message = (detail.get("error") or {}).get("message")
+            if message:
+                return message
+        except ValueError:
+            pass
+    return text
+
+
+def verify_and_save_page_token(page_id, page_token):
+    page_id = (page_id or "").strip()
+    page_token = (page_token or "").strip()
+    if not page_id or not page_token:
+        raise RuntimeError("Page ID and Page access token are required.")
+    conversations = graph_get_with_token(
+        f"{page_id}/conversations",
+        page_token,
+        {"fields": "id,updated_time,participants{id,name,profile_pic}", "limit": "5"},
+    )
+    profile_check = graph_get_with_token(
+        f"{page_id}/conversations",
+        page_token,
+        {"fields": "participants{id,name,profile_pic}", "limit": "5"},
+    )
+    save_setting("page_id", page_id, {"source": "manual_token"})
+    save_setting(
+        "page_access_token",
+        page_token,
+        {
+            "source": "manual_token",
+            "conversation_count": len(conversations.get("data") or []),
+            "profile_count": len(profile_check.get("data") or []),
+        },
+    )
+    return {
+        "page_id": page_id,
+        "conversation_count": len(conversations.get("data") or []),
+        "profile_count": len(profile_check.get("data") or []),
+    }
+
+
 def exchange_code_for_user_token(code):
     response = requests.get(
         f"https://graph.facebook.com/{crm_module.GRAPH_API_VERSION}/oauth/access_token",
@@ -130,12 +183,51 @@ def meta_reconnect():
     return redirect(url, code=303)
 
 
+MANUAL_TOKEN_TEMPLATE = """
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meta 手动接入</title><style>:root{font-family:Arial,"Microsoft YaHei",sans-serif;color:#17202a;background:#f4f6f8}*{box-sizing:border-box}body{margin:0}.top{height:58px;background:#16202a;color:#fff;display:flex;align-items:center;gap:12px;padding:0 16px}.back{color:#fff;text-decoration:none;font-weight:800}.wrap{max-width:760px;margin:0 auto;padding:18px 16px;display:grid;gap:14px}.card{background:#fff;border:1px solid #d8dee8;border-radius:8px;padding:16px}h1{font-size:18px;margin:0}h2{font-size:16px;margin:0 0 10px}.muted{color:#6a7682;font-size:13px;line-height:1.45}label{display:grid;gap:6px;color:#3e4b57;font-size:12px;font-weight:700}input,textarea{width:100%;border:1px solid #cfd7e2;border-radius:8px;padding:10px 12px;font:inherit;background:#fff}textarea{min-height:130px;resize:vertical}button,.button{border:0;border-radius:8px;background:#1f8a70;color:#fff;font-weight:800;cursor:pointer;font-size:14px;padding:11px 14px;text-decoration:none}.notice{border:1px solid #d8dee8;background:#f8fafb;border-radius:8px;padding:12px;color:#3e4b57;font-size:13px;line-height:1.45}.error{border-color:#ffccc7;background:#fff2f0;color:#a8071a}.success{border-color:#b7ebc6;background:#f6ffed;color:#17634f}.rows{display:grid;gap:12px}.code{font-family:Consolas,monospace;background:#f8fafb;border:1px solid #d8dee8;border-radius:8px;padding:10px;white-space:pre-wrap;word-break:break-all}</style></head>
+<body><header class="top"><a class="back" href="/">&lsaquo; CRM</a><h1>Meta 手动接入</h1></header><main class="wrap">
+{% if message %}<div class="notice {{ 'success' if success else 'error' }}">{{ message }}</div>{% endif %}
+<section class="card"><h2>粘贴新的 Page Token</h2><form method="post" class="rows">
+<label>Facebook Page ID<input name="page_id" value="{{ page_id }}" required></label>
+<label>Page Access Token<textarea name="page_token" required placeholder="EA..."></textarea></label>
+<button type="submit">保存并测试</button></form></section>
+<section class="card"><h2>怎么拿 token</h2><div class="muted">打开 Graph API Explorer，选择 CRM 这个 App，授权 pages_show_list、pages_messaging、pages_manage_metadata、pages_read_engagement，然后选择 Coolfixpro Supply Depot 主页，复制 Page Access Token 粘贴到这里。</div><p><a class="button" href="https://developers.facebook.com/tools/explorer/1528469058632372/" target="_blank" rel="noopener">打开 Graph API Explorer</a></p><div class="code">回调地址需要加入 Meta OAuth 白名单：
+https://crm-8t7y.onrender.com/admin/meta/oauth/callback</div></section>
+</main></body></html>
+"""
+
+
+@app.route("/admin/meta/manual-token", methods=["GET", "POST"])
+def meta_manual_token():
+    message = ""
+    success = False
+    if request.method == "POST":
+        try:
+            result = verify_and_save_page_token(request.form.get("page_id"), request.form.get("page_token"))
+            message = f"保存成功。读取到 {result['conversation_count']} 个对话检查结果。"
+            success = True
+        except Exception as error:
+            message = redacted_error(error)
+    return render_template_string(
+        MANUAL_TOKEN_TEMPLATE,
+        message=message,
+        success=success,
+        page_id=crm_module.current_meta_page_id() or crm_module.META_PAGE_ID,
+    )
+
+
 @app.get("/admin/meta/oauth/callback")
 def meta_oauth_callback():
     if request.args.get("error"):
         return jsonify({"ok": False, "error": request.args.get("error_description") or request.args.get("error")}), 400
     if request.args.get("state") != session.get("meta_oauth_state"):
-        return jsonify({"ok": False, "error": "Invalid OAuth state."}), 400
+        return render_template_string(
+            MANUAL_TOKEN_TEMPLATE,
+            message="授权状态已过期。请从 CRM 的重新授权入口重新开始，或在这里手动粘贴 Page token。",
+            success=False,
+            page_id=crm_module.current_meta_page_id() or crm_module.META_PAGE_ID,
+        ), 400
     code = request.args.get("code")
     if not code:
         return jsonify({"ok": False, "error": "Missing OAuth code."}), 400
@@ -143,7 +235,12 @@ def meta_oauth_callback():
         user_token = exchange_code_for_user_token(code)
         selected, accounts = save_first_page(user_token)
     except Exception as error:
-        return jsonify({"ok": False, "error": str(error)}), 502
+        return render_template_string(
+            MANUAL_TOKEN_TEMPLATE,
+            message=redacted_error(error),
+            success=False,
+            page_id=crm_module.current_meta_page_id() or crm_module.META_PAGE_ID,
+        ), 502
     return render_template_string(
         """
         <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
