@@ -17,6 +17,7 @@ META_PAGE_ID = os.getenv("META_PAGE_ID", "")
 GRAPH_API_VERSION = os.getenv("GRAPH_API_VERSION", "v21.0")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+MESSENGER_DEFAULT_AVATAR_URL = "https://upload.wikimedia.org/wikipedia/commons/6/63/Facebook_Messenger_logo_2025.svg"
 
 FIXED_REPLY_RULES = [
     {
@@ -251,7 +252,7 @@ def ensure_customer(psid, profile=None):
     name = display_name(profile, f"Messenger {psid[-6:]}")
     identity = find_identity(psid)
     profile_payload = {"display_name": name, "updated_at": now_iso()}
-    picture_url = profile_picture_url(profile)
+    picture_url = profile_picture_url(profile) or MESSENGER_DEFAULT_AVATAR_URL
     if picture_url:
         profile_payload["profile_pic_url"] = picture_url
     if profile.get("locale"):
@@ -729,7 +730,7 @@ def backfill_messenger_profiles():
         try:
             profile = complete_profile(psid, identity.get("raw_profile") or {})
             name = display_name(profile, f"Messenger {psid[-6:]}")
-            picture_url = profile_picture_url(profile)
+            picture_url = profile_picture_url(profile) or MESSENGER_DEFAULT_AVATAR_URL
             payload = {"display_name": name, "updated_at": now_iso()}
             if picture_url:
                 payload["profile_pic_url"] = picture_url
