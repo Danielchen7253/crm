@@ -56,6 +56,7 @@ create table if not exists promotion_posts (
   id uuid primary key default gen_random_uuid(),
   title text,
   content text not null,
+  image_url text,
   channel text not null default 'facebook_page',
   status text not null default 'draft',
   raw_result jsonb not null default '{}',

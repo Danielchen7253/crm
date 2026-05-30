@@ -15,17 +15,18 @@ crm_module = app_live_new.crm_module
 PAGE_CSS = """
 :root{font-family:Arial,"Microsoft YaHei",sans-serif;color:#17202a;background:#f4f6f8}
 *{box-sizing:border-box}body{margin:0}.top{height:58px;background:#16202a;color:#fff;display:flex;align-items:center;gap:12px;padding:0 16px}.back{color:#fff;text-decoration:none;font-weight:800}
-.wrap{max-width:1320px;margin:0 auto;padding:18px 16px;display:grid;gap:14px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.workbench{display:grid;grid-template-columns:0.95fr 0.95fr 1.1fr;gap:14px;align-items:start}
-.card{background:#fff;border:1px solid #d8dee8;border-radius:8px;padding:16px;min-width:0}.compact{padding:12px}
-h1{font-size:18px;margin:0}h2{font-size:16px;margin:0 0 10px}.muted{color:#6a7682;font-size:13px;line-height:1.45}.tiny{font-size:12px}.strong{font-weight:800}
+.wrap{max-width:1360px;margin:0 auto;padding:18px 16px;display:grid;gap:14px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.station{display:grid;grid-template-columns:0.88fr 1.12fr;gap:14px;align-items:start}
+.card{background:#fff;border:1px solid #d8dee8;border-radius:8px;padding:16px;min-width:0}h1{font-size:18px;margin:0}h2{font-size:16px;margin:0 0 10px}.muted{color:#6a7682;font-size:13px;line-height:1.45}.tiny{font-size:12px}.strong{font-weight:800}
 .status{display:inline-flex;align-items:center;border-radius:999px;padding:4px 9px;font-size:12px;font-weight:800;white-space:nowrap}.ok{background:#eef7f4;color:#17634f}.bad{background:#fff2f0;color:#a8071a}.warn{background:#fff7e6;color:#ad6800}.info{background:#eef4ff;color:#1d4ed8}
 .rows{display:grid;gap:9px}.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;border-top:1px solid #edf0f4;padding-top:9px}.row:first-child{border-top:0;padding-top:0}
-label{display:grid;gap:6px;color:#3e4b57;font-size:12px;font-weight:700}input,textarea,select{width:100%;border:1px solid #cfd7e2;border-radius:8px;padding:10px 12px;font:inherit;background:#fff}textarea{min-height:220px;resize:vertical}.short textarea{min-height:96px}
-.actions{display:flex;flex-wrap:wrap;gap:10px}.button,button{border:0;border-radius:8px;background:#1f8a70;color:#fff;font-weight:800;cursor:pointer;font-size:14px;padding:11px 14px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}.secondary{background:#e8edf3;color:#17202a}.danger{background:#fff2f0;color:#a8071a}.ghost{background:#f7f9fb;color:#17202a;border:1px solid #d8dee8}
+label{display:grid;gap:6px;color:#3e4b57;font-size:12px;font-weight:700}input,textarea,select{width:100%;border:1px solid #cfd7e2;border-radius:8px;padding:10px 12px;font:inherit;background:#fff}textarea{min-height:210px;resize:vertical}.short-textarea{min-height:110px}
+.actions{display:flex;flex-wrap:wrap;gap:10px}.button,button{border:0;border-radius:8px;background:#1f8a70;color:#fff;font-weight:800;cursor:pointer;font-size:14px;padding:11px 14px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}.secondary{background:#e8edf3;color:#17202a}.ghost{background:#f7f9fb;color:#17202a;border:1px solid #d8dee8}
 .notice{border:1px solid #d8dee8;background:#f8fafb;border-radius:8px;padding:12px;color:#3e4b57;font-size:13px;line-height:1.45}.error{border-color:#ffccc7;background:#fff2f0;color:#a8071a}.success{border-color:#b7ebc6;background:#f6ffed;color:#17634f}
-.list{display:grid;gap:8px}.list-item{border:1px solid #e3e8ef;border-radius:8px;padding:10px;background:#fbfcfd;display:grid;gap:8px}.list-item.active{border-color:#1f8a70;background:#f2fbf8}.titleline{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.titleline a{color:#17202a;text-decoration:none}.clip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.preview{color:#3e4b57;font-size:13px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap}
-.group-card{border:1px solid #e3e8ef;border-radius:8px;padding:10px;display:grid;gap:8px;background:#fff}.group-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px}.group-name{font-weight:800}.group-meta{display:flex;flex-wrap:wrap;gap:6px;color:#6a7682;font-size:12px}.group-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.selected-copy{position:absolute;left:-9999px;top:-9999px}
-@media(max-width:980px){.workbench{grid-template-columns:1fr}.grid{grid-template-columns:1fr}.wrap{padding:12px}.top{height:54px}.row{grid-template-columns:1fr}.actions,.group-actions{display:grid;grid-template-columns:1fr}.button,button{width:100%;text-align:center}}
+.material-preview{border:1px solid #e3e8ef;border-radius:8px;overflow:hidden;background:#fbfcfd}.material-preview img{width:100%;display:block;max-height:280px;object-fit:contain;background:#f7f9fb}.material-preview .empty{padding:24px;text-align:center;color:#6a7682}
+.task{display:grid;gap:12px}.current-group{border:1px solid #1f8a70;background:#f2fbf8;border-radius:8px;padding:14px;display:grid;gap:10px}.task-title{font-size:20px;font-weight:900}.task-actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.selected-copy{position:absolute;left:-9999px;top:-9999px}
+.list{display:grid;gap:8px}.list-item{border:1px solid #e3e8ef;border-radius:8px;padding:10px;background:#fbfcfd;display:grid;gap:8px}.list-item.active{border-color:#1f8a70;background:#f2fbf8}.titleline{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.titleline a{color:#17202a;text-decoration:none}.clip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.preview{color:#3e4b57;font-size:13px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap}
+.group-list{display:grid;gap:7px;max-height:520px;overflow:auto;padding-right:4px}.group-row{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid #e3e8ef;border-radius:8px;background:#fff;padding:9px;text-decoration:none;color:#17202a}.group-row.current{border-color:#1f8a70;background:#f2fbf8}.group-row.done{opacity:.72}.badge{height:24px;min-width:24px;border-radius:999px;background:#e8edf3;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:900}.done .badge{background:#eef7f4;color:#17634f}
+@media(max-width:980px){.station,.grid{grid-template-columns:1fr}.wrap{padding:12px}.top{height:54px}.row{grid-template-columns:1fr}.actions,.task-actions{display:grid;grid-template-columns:1fr}.button,button{width:100%;text-align:center}.group-list{max-height:none}}
 """
 
 
@@ -151,7 +152,7 @@ def promotion_table_error(error):
 def get_promotion_posts():
     return crm_module.sb_get_all(
         "promotion_posts",
-        {"select": "id,title,content,channel,status,created_at,updated_at", "order": "created_at.desc", "limit": "30"},
+        {"select": "id,title,content,image_url,channel,status,created_at,updated_at", "order": "created_at.desc", "limit": "30"},
         page_size=30,
         max_rows=30,
     )
@@ -169,7 +170,7 @@ def get_selected_post(post_id=None):
 def get_promotion_groups():
     return crm_module.sb_get_all(
         "promotion_groups",
-        {"select": "*", "status": "neq.disabled", "order": "last_posted_at.asc.nullsfirst,created_at.desc"},
+        {"select": "*", "status": "neq.disabled", "order": "last_posted_at.asc.nullsfirst,created_at.asc"},
         page_size=500,
         max_rows=5000,
     )
@@ -195,6 +196,29 @@ def group_log_map(logs):
     return latest
 
 
+def choose_current_group(groups, log_by_group, group_id=None):
+    if group_id:
+        for group in groups:
+            if group.get("id") == group_id:
+                return group
+    for group in groups:
+        log = log_by_group.get(group.get("id"))
+        if not log or log.get("status") != "published":
+            return group
+    return groups[0] if groups else None
+
+
+def next_group_after(groups, current_group):
+    if not groups or not current_group:
+        return None
+    ids = [group.get("id") for group in groups]
+    try:
+        index = ids.index(current_group.get("id"))
+    except ValueError:
+        return groups[0]
+    return groups[(index + 1) % len(groups)] if len(groups) > 1 else current_group
+
+
 CHANNELS_TEMPLATE = """
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>API 接入状态</title><style>{{ css }}</style></head>
 <body><header class="top"><a class="back" href="/">&lsaquo; CRM</a><h1>API 接入状态</h1></header><main class="wrap">
@@ -212,34 +236,77 @@ CHANNELS_TEMPLATE = """
 
 
 PROMOTION_TEMPLATE = """
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>群组发帖工作台</title><style>{{ css }}</style></head>
-<body><header class="top"><a class="back" href="/">&lsaquo; CRM</a><h1>群组发帖工作台</h1></header><main class="wrap">
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>群组发帖工作站</title><style>{{ css }}</style></head>
+<body><header class="top"><a class="back" href="/">&lsaquo; CRM</a><h1>群组发帖工作站</h1></header><main class="wrap">
 {% if message %}<div class="notice {{ 'success' if success else 'error' }}">{{ message }}</div>{% endif %}
 {% if setup_error %}<div class="notice error">{{ setup_error }}</div>{% endif %}
 
-<div class="workbench">
+<div class="station">
 <section class="card">
-  <h2>发帖文案</h2>
+  <h2>左侧：图片和文章</h2>
   <form method="post" action="/promotion/posts" class="rows">
-    <label>发布渠道
-      <select name="channel">
-        <option value="facebook_group">Facebook 群组工作台</option>
-        <option value="facebook_page">Facebook Page 帖子</option>
-        <option value="draft">只保存草稿</option>
-      </select>
-    </label>
+    <input type="hidden" name="channel" value="facebook_group">
     <label>标题<input name="title" value="{{ selected_post.title if selected_post else '' }}" placeholder="例如：Houston refrigerator gasket replacement"></label>
-    <label>发帖内容<textarea id="post-content" name="content" placeholder="输入这次要复制到群组的推广内容" required>{{ selected_post.content if selected_post else '' }}</textarea></label>
+    <label>图片链接<input id="image-url" name="image_url" value="{{ selected_post.image_url if selected_post and selected_post.image_url else '' }}" placeholder="https://...jpg 或产品图片链接"></label>
+    <div class="material-preview" id="image-preview">
+      {% if selected_post and selected_post.image_url %}
+      <img src="{{ selected_post.image_url }}" alt="发帖图片">
+      {% else %}
+      <div class="empty">这里显示准备发布的图片</div>
+      {% endif %}
+    </div>
+    <label>准备发的文章<textarea id="post-content" name="content" placeholder="输入要发到群组的文章" required>{{ selected_post.content if selected_post else '' }}</textarea></label>
     <div class="actions">
-      <button name="action" value="draft" type="submit" class="secondary">保存文案</button>
-      <button name="action" value="publish" type="submit">发到 Page</button>
+      <button name="action" value="draft" type="submit" class="secondary">保存素材</button>
+      <button type="button" class="ghost copy-post">复制文章</button>
+      <a class="button secondary" id="open-image" href="{{ selected_post.image_url if selected_post and selected_post.image_url else '#' }}" target="_blank" rel="noopener">打开图片</a>
     </div>
   </form>
-  <div class="notice">
-    当前模式：先把所有群组集中管理，逐个打开群组、复制文案、标记已发。这样不会触发平台对机器群发的高风险限制。
-  </div>
 </section>
 
+<section class="card task">
+  <div class="titleline">
+    <h2>右侧：当前群组</h2>
+    <span class="status info">{{ groups|length }} 个群组</span>
+  </div>
+  <textarea class="selected-copy" id="copy-buffer">{{ selected_post.content if selected_post else '' }}</textarea>
+  {% if current_group %}
+  {% set current_log = log_by_group.get(current_group.id) %}
+  <div class="current-group">
+    <div class="muted">当前要发</div>
+    <div class="task-title">{{ current_group.name }}</div>
+    <div class="muted clip">{{ current_group.url }}</div>
+    <div class="group-meta"><span>{{ current_group.category or '未分类' }}</span><span>上次：{{ current_group.last_posted_at or '未发过' }}</span><span>{{ current_log.status if current_log else '待执行' }}</span></div>
+    <div class="task-actions">
+      <a class="button" href="{{ current_group.url }}" target="_blank" rel="noopener">打开当前群</a>
+      <button type="button" class="ghost copy-post">复制文章</button>
+      <form method="post" action="/promotion/groups/{{ current_group.id }}/mark">
+        <input type="hidden" name="post_id" value="{{ selected_post.id if selected_post else '' }}">
+        <input type="hidden" name="next_group_id" value="{{ next_group.id if next_group else '' }}">
+        <button type="submit">标记已发/下一个</button>
+      </form>
+      {% if next_group %}<a class="button secondary" href="/promotion?post={{ selected_post.id if selected_post else '' }}&group={{ next_group.id }}">跳到下一个</a>{% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div class="notice">还没有群组。下面先添加或导入群组链接。</div>
+  {% endif %}
+
+  <h2>发帖队列</h2>
+  <div class="group-list">
+    {% for group in groups %}
+    {% set log = log_by_group.get(group.id) %}
+    <a class="group-row {{ 'current' if current_group and group.id == current_group.id else '' }} {{ 'done' if log and log.status == 'published' else '' }}" href="/promotion?post={{ selected_post.id if selected_post else '' }}&group={{ group.id }}">
+      <span class="badge">{{ loop.index }}</span>
+      <span class="clip"><strong>{{ group.name }}</strong><br><span class="muted tiny">{{ group.category or '未分类' }} · {{ group.last_posted_at or '未发过' }}</span></span>
+      <span class="status {{ 'ok' if log and log.status == 'published' else 'warn' }}">{{ '已发' if log and log.status == 'published' else '待发' }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+</div>
+
+<div class="grid">
 <section class="card">
   <h2>文案库</h2>
   <div class="list">
@@ -265,63 +332,42 @@ PROMOTION_TEMPLATE = """
   <form method="post" action="/promotion/groups" class="rows">
     <label>群组名称<input name="name" placeholder="例如：Houston Appliance Repair"></label>
     <label>群组链接<input name="url" placeholder="https://www.facebook.com/groups/..."></label>
-    <label>分类<input name="category" placeholder="冰箱 / 维修 / 本地买卖"></label>
-    <label>备注<textarea name="notes" placeholder="这个群适合发什么、多久发一次"></textarea></label>
+    <label>分类<input name="category" value="Houston HVAC" placeholder="冰箱 / 维修 / 本地买卖"></label>
+    <label>备注<textarea class="short-textarea" name="notes" placeholder="这个群适合发什么、多久发一次"></textarea></label>
     <button type="submit">保存群组</button>
   </form>
 </section>
 </div>
 
-<section class="card">
-  <div class="titleline">
-    <h2>群组执行区</h2>
-    <span class="status info">{{ groups|length }} 个群组</span>
-  </div>
-  <textarea class="selected-copy" id="copy-buffer">{{ selected_post.content if selected_post else '' }}</textarea>
-  <div class="list">
-    {% if groups %}
-      {% for group in groups %}
-      {% set log = log_by_group.get(group.id) %}
-      <div class="group-card">
-        <div class="group-head">
-          <div>
-            <div class="group-name clip">{{ group.name }}</div>
-            <div class="group-meta"><span>{{ group.category or '未分类' }}</span><span>上次：{{ group.last_posted_at or '未发过' }}</span></div>
-          </div>
-          <span class="status {{ 'ok' if log and log.status == 'published' else 'warn' }}">{{ log.status if log else '待执行' }}</span>
-        </div>
-        <div class="muted clip">{{ group.url }}</div>
-        {% if group.notes %}<div class="muted">{{ group.notes }}</div>{% endif %}
-        <div class="group-actions">
-          <a class="button secondary" href="{{ group.url }}" target="_blank" rel="noopener">打开群组</a>
-          <button type="button" class="ghost copy-post">复制文案</button>
-          <form method="post" action="/promotion/groups/{{ group.id }}/mark">
-            <input type="hidden" name="post_id" value="{{ selected_post.id if selected_post else '' }}">
-            <button type="submit">标记已发</button>
-          </form>
-        </div>
-      </div>
-      {% endfor %}
-    {% else %}
-      <div class="notice">还没有群组。先把你常用的 Facebook 群组链接加进来。</div>
-    {% endif %}
-  </div>
-</section>
-
 <script>
 (function(){
+  var imageInput = document.getElementById('image-url');
+  var imagePreview = document.getElementById('image-preview');
+  var openImage = document.getElementById('open-image');
+  function currentText(){
+    var live = document.getElementById('post-content');
+    var saved = document.getElementById('copy-buffer');
+    return live && live.value.trim() ? live.value : (saved ? saved.value : '');
+  }
   function copyCurrentPost(){
-    var el = document.getElementById('copy-buffer') || document.getElementById('post-content');
-    var text = el ? el.value : '';
+    var text = currentText();
     if (!text.trim()) return;
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text);
     } else {
+      var el = document.getElementById('post-content') || document.getElementById('copy-buffer');
       el.focus();
       el.select();
       document.execCommand('copy');
     }
   }
+  function refreshImage(){
+    if (!imageInput || !imagePreview) return;
+    var url = imageInput.value.trim();
+    imagePreview.innerHTML = url ? '<img src="' + url.replace(/"/g, '&quot;') + '" alt="发帖图片">' : '<div class="empty">这里显示准备发布的图片</div>';
+    if (openImage) openImage.href = url || '#';
+  }
+  if (imageInput) imageInput.addEventListener('input', refreshImage);
   document.querySelectorAll('.copy-post').forEach(function(button){
     button.addEventListener('click', function(){
       copyCurrentPost();
@@ -353,13 +399,19 @@ def promotion_page():
     groups = []
     logs = []
     selected_post = None
+    current_group = None
+    next_group = None
     try:
         selected_post = get_selected_post(request.args.get("post"))
         posts = get_promotion_posts()
         groups = get_promotion_groups()
         logs = get_group_logs(selected_post.get("id") if selected_post else None)
+        log_by_group = group_log_map(logs)
+        current_group = choose_current_group(groups, log_by_group, request.args.get("group"))
+        next_group = next_group_after(groups, current_group)
     except Exception as error:
         setup_error = promotion_table_error(error)
+        log_by_group = {}
     return render_template_string(
         PROMOTION_TEMPLATE,
         css=PAGE_CSS,
@@ -370,7 +422,9 @@ def promotion_page():
         posts=posts,
         groups=groups,
         selected_post=selected_post,
-        log_by_group=group_log_map(logs),
+        log_by_group=log_by_group,
+        current_group=current_group,
+        next_group=next_group,
     )
 
 
@@ -378,6 +432,7 @@ def promotion_page():
 def promotion_post_submit():
     title = request.form.get("title", "").strip()
     content = request.form.get("content", "").strip()
+    image_url = request.form.get("image_url", "").strip()
     channel = request.form.get("channel", "facebook_group").strip()
     action = request.form.get("action", "draft").strip()
     if not content:
@@ -386,6 +441,7 @@ def promotion_post_submit():
     payload = {
         "title": title or content[:60],
         "content": content,
+        "image_url": image_url,
         "channel": channel,
         "status": "draft",
         "raw_result": {},
@@ -439,6 +495,7 @@ def promotion_group_submit():
 @app.post("/promotion/groups/<group_id>/mark")
 def promotion_group_mark(group_id):
     post_id = request.form.get("post_id", "").strip()
+    next_group_id = request.form.get("next_group_id", "").strip()
     now = crm_module.now_iso()
     try:
         crm_module.sb_post(
@@ -455,7 +512,8 @@ def promotion_group_mark(group_id):
         )
         crm_module.sb_patch("promotion_groups", {"last_posted_at": now, "updated_at": now}, {"id": f"eq.{group_id}"})
         post_param = f"&post={post_id}" if post_id else ""
-        return redirect(f"/promotion?success=1&message=Marked%20as%20posted{post_param}", code=303)
+        group_param = f"&group={next_group_id}" if next_group_id else ""
+        return redirect(f"/promotion?success=1&message=Marked%20as%20posted{post_param}{group_param}", code=303)
     except Exception as error:
         return redirect(f"/promotion?success=0&message={quote(str(error)[:240])}", code=303)
 
