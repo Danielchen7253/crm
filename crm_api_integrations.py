@@ -29,6 +29,18 @@ label{display:grid;gap:6px;color:#3e4b57;font-size:12px;font-weight:700}input,te
 @media(max-width:980px){.station,.grid{grid-template-columns:1fr}.wrap{padding:12px}.top{height:54px}.row{grid-template-columns:1fr}.actions,.task-actions{display:grid;grid-template-columns:1fr}.button,button{width:100%;text-align:center}.group-list{max-height:none}}
 """
 
+SIMPLE_PAGE_CSS = """
+:root{font-family:Arial,"Microsoft YaHei",sans-serif;color:#17202a;background:#f4f6f8}
+*{box-sizing:border-box}body{margin:0}.top{height:54px;background:#16202a;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px;position:sticky;top:0;z-index:3}.back{color:#fff;text-decoration:none;font-weight:800}
+.wrap{max-width:760px;margin:0 auto;padding:12px;display:grid;gap:12px}.card{background:#fff;border:1px solid #d8dee8;border-radius:8px;padding:14px;display:grid;gap:10px}
+h1{font-size:17px;margin:0}h2{font-size:15px;margin:0}.muted{color:#6a7682;font-size:12px;line-height:1.45}.title{font-weight:900;font-size:18px}.preview{white-space:pre-wrap;border:1px solid #e3e8ef;background:#f8fafb;border-radius:8px;padding:10px;max-height:260px;overflow:auto;font-size:13px;line-height:1.45}
+.media{display:grid;grid-template-columns:1fr 1fr;gap:8px}.media img,.media video{width:100%;height:190px;object-fit:contain;border:1px solid #e3e8ef;border-radius:8px;background:#f8fafb}
+.actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.button,button{border:0;border-radius:8px;background:#1f8a70;color:#fff;font-weight:800;font-size:13px;padding:10px 12px;text-decoration:none;display:flex;align-items:center;justify-content:center;cursor:pointer;text-align:center}.secondary{background:#e8edf3;color:#17202a}.ghost{background:#f7f9fb;color:#17202a;border:1px solid #d8dee8}
+.queue{display:grid;gap:8px}.group{display:grid;grid-template-columns:34px minmax(0,1fr);gap:10px;align-items:center;border:1px solid #e3e8ef;border-radius:8px;background:#fff;padding:10px;text-decoration:none;color:#17202a}.group:hover{border-color:#1f8a70;background:#f2fbf8}.badge{height:26px;width:26px;border-radius:50%;background:#e8edf3;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900}.clip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.status{border-radius:999px;padding:3px 8px;background:#fff7e6;color:#ad6800;font-size:12px;font-weight:800}.done .status{background:#eef7f4;color:#17634f}.done{opacity:.72}.sticky-tools{position:sticky;top:66px;z-index:2}
+@media(max-width:620px){.actions,.media{grid-template-columns:1fr}.wrap{padding:10px}.media img,.media video{height:auto;max-height:240px}}
+"""
+
 
 def install_navigation_links():
     extra_links = (
@@ -458,6 +470,72 @@ PROMOTION_TEMPLATE = """
 """
 
 
+SIMPLE_PROMOTION_TEMPLATE = """
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>左右分屏发帖</title><style>{{ css }}</style></head>
+<body><header class="top"><a class="back" href="/">&lsaquo; CRM</a><h1>左右分屏发帖</h1></header><main class="wrap">
+{% if message %}<div class="card"><div class="muted">{{ message }}</div></div>{% endif %}
+<section class="card sticky-tools">
+  <h2>帖子素材</h2>
+  {% if selected_post %}
+  <div class="title">{{ selected_post.title or '未命名文案' }}</div>
+  <div class="media">
+    {% if selected_post.image_url %}<img src="{{ selected_post.image_url }}" alt="帖子图片">{% endif %}
+    {% if selected_post.video_url %}<video src="{{ selected_post.video_url }}" controls muted></video>{% endif %}
+  </div>
+  <textarea id="copy-source" style="position:absolute;left:-9999px;top:-9999px">{{ selected_post.content }}</textarea>
+  <div class="preview">{{ selected_post.content }}</div>
+  <div class="actions">
+    <button type="button" id="copy-post">复制贴文</button>
+    {% if selected_post.image_url %}<a class="button secondary" href="{{ selected_post.image_url }}" target="facebook_posting_window" rel="noopener">打开图片</a>{% endif %}
+    {% if selected_post.video_url %}<a class="button secondary" href="{{ selected_post.video_url }}" target="facebook_posting_window" rel="noopener">打开视频</a>{% endif %}
+  </div>
+  <div class="muted">用法：电脑左右分屏，左边放这个页面，右边放 Facebook。先点群组链接，右边会打开对应群组；点“复制贴文”，到右边粘贴；图片/视频用 Facebook 的上传按钮从电脑选择。</div>
+  {% else %}
+  <div class="muted">还没有帖子素材。</div>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>群组队列</h2>
+  <div class="queue">
+    {% for group in groups %}
+    {% set log = log_by_group.get(group.id) %}
+    <a class="group {{ 'done' if log and log.status == 'published' else '' }}" href="{{ group.url }}" target="facebook_posting_window" rel="noopener">
+      <span class="badge">{{ loop.index }}</span>
+      <span class="clip"><strong>{{ group.name }}</strong><br><span class="muted">{{ group.category or '未分类' }} · {{ group.last_posted_at or '未发过' }}</span></span>
+    </a>
+    <form method="post" action="/promotion/groups/{{ group.id }}/mark" class="actions">
+      <input type="hidden" name="post_id" value="{{ selected_post.id if selected_post else '' }}">
+      <button type="submit" class="ghost">标记这个群已发</button>
+      <a class="button secondary" href="{{ group.url }}" target="facebook_posting_window" rel="noopener">打开这个群</a>
+      <span class="status">{{ '已发' if log and log.status == 'published' else '待发' }}</span>
+    </form>
+    {% endfor %}
+  </div>
+</section>
+<script>
+(function(){
+  var btn = document.getElementById('copy-post');
+  if (!btn) return;
+  btn.addEventListener('click', async function(){
+    var text = document.getElementById('copy-source').value;
+    if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+    else {
+      var source = document.getElementById('copy-source');
+      source.focus();
+      source.select();
+      document.execCommand('copy');
+    }
+    var old = btn.textContent;
+    btn.textContent = '已复制';
+    setTimeout(function(){ btn.textContent = old; }, 900);
+  });
+})();
+</script>
+</main></body></html>
+"""
+
+
 @app.get("/admin/channels")
 def channel_status_page():
     return render_template_string(CHANNELS_TEMPLATE, css=PAGE_CSS, status=api_status_payload())
@@ -509,6 +587,30 @@ def promotion_page():
         log_by_group=log_by_group,
         current_group=current_group,
         next_group=next_group,
+    )
+
+
+@app.get("/promotion/simple")
+def promotion_simple_page():
+    setup_error = ""
+    groups = []
+    logs = []
+    selected_post = None
+    log_by_group = {}
+    try:
+        selected_post = get_selected_post(request.args.get("post"))
+        groups = get_promotion_groups()
+        logs = get_group_logs(selected_post.get("id") if selected_post else None)
+        log_by_group = group_log_map(logs)
+    except Exception as error:
+        setup_error = promotion_table_error(error)
+    return render_template_string(
+        SIMPLE_PROMOTION_TEMPLATE,
+        css=SIMPLE_PAGE_CSS,
+        message=setup_error,
+        selected_post=selected_post,
+        groups=groups,
+        log_by_group=log_by_group,
     )
 
 
