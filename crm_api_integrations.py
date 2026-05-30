@@ -219,6 +219,39 @@ def next_group_after(groups, current_group):
     return groups[(index + 1) % len(groups)] if len(groups) > 1 else current_group
 
 
+def public_asset_url(path):
+    if not path:
+        return ""
+    if path.startswith("http://") or path.startswith("https://"):
+        return path
+    return request.url_root.rstrip("/") + path
+
+
+def extension_state_payload(post_id=None, group_id=None):
+    selected_post = get_selected_post(post_id)
+    posts = get_promotion_posts()
+    groups = get_promotion_groups()
+    logs = get_group_logs(selected_post.get("id") if selected_post else None)
+    log_by_group = group_log_map(logs)
+    current_group = choose_current_group(groups, log_by_group, group_id)
+    next_group = next_group_after(groups, current_group)
+    post_payload = None
+    if selected_post:
+        post_payload = dict(selected_post)
+        post_payload["image_url"] = public_asset_url(post_payload.get("image_url"))
+        post_payload["video_url"] = public_asset_url(post_payload.get("video_url"))
+    return {
+        "ok": True,
+        "post": post_payload,
+        "posts": posts,
+        "groups": groups,
+        "current_group": current_group,
+        "next_group": next_group,
+        "logs": logs,
+        "crm_url": request.url_root.rstrip("/"),
+    }
+
+
 CHANNELS_TEMPLATE = """
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>API 接入状态</title><style>{{ css }}</style></head>
 <body><header class="top"><a class="back" href="/">&lsaquo; CRM</a><h1>API 接入状态</h1></header><main class="wrap">
@@ -435,6 +468,14 @@ def channel_status_json():
     return jsonify(api_status_payload())
 
 
+@app.get("/api/promotion/extension-state")
+def promotion_extension_state():
+    try:
+        return jsonify(extension_state_payload(request.args.get("post"), request.args.get("group")))
+    except Exception as error:
+        return jsonify({"ok": False, "error": str(error)}), 500
+
+
 @app.get("/promotion")
 def promotion_page():
     setup_error = ""
@@ -561,6 +602,29 @@ def promotion_group_mark(group_id):
         return redirect(f"/promotion?success=1&message=Marked%20as%20posted{post_param}{group_param}", code=303)
     except Exception as error:
         return redirect(f"/promotion?success=0&message={quote(str(error)[:240])}", code=303)
+
+
+@app.post("/api/promotion/groups/<group_id>/mark")
+def promotion_group_mark_json(group_id):
+    post_id = (request.json or {}).get("post_id", "") if request.is_json else request.form.get("post_id", "")
+    now = crm_module.now_iso()
+    try:
+        crm_module.sb_post(
+            "promotion_group_logs",
+            {
+                "promotion_post_id": post_id or None,
+                "group_id": group_id,
+                "status": "published",
+                "posted_at": now,
+                "notes": "Marked from Chrome extension",
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+        crm_module.sb_patch("promotion_groups", {"last_posted_at": now, "updated_at": now}, {"id": f"eq.{group_id}"})
+        return jsonify(extension_state_payload(post_id, None))
+    except Exception as error:
+        return jsonify({"ok": False, "error": str(error)}), 500
 
 
 install_navigation_links()

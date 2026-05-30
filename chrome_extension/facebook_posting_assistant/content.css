@@ -1,0 +1,56 @@
+#coolfix-crm-assistant {
+  position: fixed;
+  right: 18px;
+  top: 82px;
+  z-index: 2147483647;
+  width: 320px;
+  max-height: calc(100vh - 110px);
+  overflow: auto;
+  background: #ffffff;
+  color: #17202a;
+  border: 1px solid #cfd7e2;
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, .18);
+  font-family: Arial, sans-serif;
+  padding: 12px;
+}
+#coolfix-crm-assistant * { box-sizing: border-box; }
+#coolfix-crm-assistant h2 { margin: 0 0 8px; font-size: 16px; }
+#coolfix-crm-assistant .cf-muted { color: #6a7682; font-size: 12px; line-height: 1.35; }
+#coolfix-crm-assistant .cf-preview {
+  white-space: pre-wrap;
+  max-height: 170px;
+  overflow: auto;
+  background: #f6f8fb;
+  border: 1px solid #e3e8ef;
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 12px;
+}
+#coolfix-crm-assistant img,
+#coolfix-crm-assistant video {
+  width: 100%;
+  max-height: 150px;
+  object-fit: contain;
+  background: #f6f8fb;
+  border-radius: 8px;
+  border: 1px solid #e3e8ef;
+}
+#coolfix-crm-assistant button,
+#coolfix-crm-assistant a {
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: #1f8a70;
+  color: #fff;
+  font-weight: 800;
+  padding: 10px 12px;
+  cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+  display: block;
+  margin-top: 8px;
+  font-size: 13px;
+}
+#coolfix-crm-assistant .cf-secondary { background: #e8edf3; color: #17202a; }
+#coolfix-crm-assistant .cf-status { margin-top: 8px; font-size: 12px; color: #3e4b57; white-space: pre-wrap; }

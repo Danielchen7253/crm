@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    :root{font-family:Arial,sans-serif;color:#17202a}
+    body{width:340px;margin:0;padding:14px;background:#f6f8fb}
+    h1{font-size:16px;margin:0 0 10px}
+    .card{background:#fff;border:1px solid #d8dee8;border-radius:8px;padding:12px;display:grid;gap:8px}
+    .muted{color:#6a7682;font-size:12px;line-height:1.4}
+    button,a{border:0;border-radius:8px;background:#1f8a70;color:#fff;text-decoration:none;font-weight:800;padding:10px 12px;cursor:pointer;text-align:center}
+    .secondary{background:#e8edf3;color:#17202a}
+    .danger{background:#fff2f0;color:#a8071a}
+    .row{display:grid;gap:8px}
+    #status{font-size:12px;color:#3e4b57;line-height:1.35;white-space:pre-wrap}
+  </style>
+</head>
+<body>
+  <h1>Coolfix 发帖助手</h1>
+  <div class="card">
+    <div><strong id="postTitle">读取中...</strong></div>
+    <div class="muted" id="groupName"></div>
+    <div class="row">
+      <button id="start">打开当前群组</button>
+      <button id="refresh" class="secondary">刷新队列</button>
+      <a class="secondary" href="https://crm-8t7y.onrender.com/promotion" target="_blank">打开 CRM 工作站</a>
+    </div>
+    <div id="status"></div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
