@@ -17,7 +17,7 @@ Local Chrome extension for the CRM group posting workflow.
 1. Click `打开当前群组`.
 2. If you have not joined the group, click Join in Facebook.
 3. Click `填入贴文`.
-4. Use `打开图片` / `打开视频` and upload media manually.
+4. Click `上传图片/视频` and select the file from your computer.
 5. Click Facebook's Publish button yourself.
 6. Click `已发布，打开下一个`.
 

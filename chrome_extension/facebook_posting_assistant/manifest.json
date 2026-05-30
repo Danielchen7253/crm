@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Coolfix CRM Facebook Posting Assistant",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local helper for posting CRM promotion templates into Facebook groups.",
-  "permissions": ["activeTab", "tabs", "scripting", "storage"],
+  "permissions": ["activeTab", "tabs", "scripting", "storage", "clipboardWrite"],
   "host_permissions": [
     "https://crm-8t7y.onrender.com/*",
     "https://www.facebook.com/*",

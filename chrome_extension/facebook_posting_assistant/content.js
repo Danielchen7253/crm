@@ -9,46 +9,141 @@ function setStatus(text) {
   if (el) el.textContent = text;
 }
 
+function visible(el) {
+  if (!el) return false;
+  const rect = el.getBoundingClientRect();
+  const style = window.getComputedStyle(el);
+  return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+}
+
 function normalizeText(text) {
   return (text || "").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-function findClickableComposer() {
-  const candidates = [...document.querySelectorAll('div[role="button"], span, div')];
-  return candidates.find((el) => {
-    const text = normalizeText(el.innerText || el.textContent || "");
-    return text.includes("write something") || text.includes("create public post") || text.includes("what's on your mind") || text.includes("写点") || text.includes("创建帖子");
+function findByText(selector, keywords) {
+  return [...document.querySelectorAll(selector)].find((el) => {
+    if (!visible(el)) return false;
+    const text = normalizeText(el.innerText || el.textContent || el.getAttribute("aria-label") || "");
+    return keywords.some((keyword) => text.includes(keyword));
   });
 }
 
+function findClickableComposer() {
+  return findByText('div[role="button"], span[role="button"], button, div[aria-label], span', [
+    "write something",
+    "create public post",
+    "create post",
+    "what's on your mind",
+    "写点",
+    "创建帖子",
+    "发帖"
+  ]);
+}
+
+async function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function waitForTextbox() {
-  for (let i = 0; i < 30; i += 1) {
-    const boxes = [...document.querySelectorAll('div[contenteditable="true"][role="textbox"], div[contenteditable="true"]')];
-    const box = boxes.find((el) => el.offsetParent !== null);
+  for (let i = 0; i < 40; i += 1) {
+    const boxes = [...document.querySelectorAll('div[contenteditable="true"][role="textbox"], div[contenteditable="true"], textarea')];
+    const box = boxes.reverse().find((el) => visible(el) && !el.closest("#coolfix-crm-assistant"));
     if (box) return box;
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await sleep(250);
   }
   return null;
 }
 
-async function fillPostText(text) {
-  const opener = findClickableComposer();
-  if (opener) opener.click();
-  const box = await waitForTextbox();
-  if (!box) {
-    setStatus("没有找到 Facebook 发帖输入框。先手动点一下发帖框，再点“填入贴文”。");
+function selectContenteditable(el) {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+async function writeIntoTextbox(box, text) {
+  box.focus();
+  await sleep(120);
+  if (box.tagName === "TEXTAREA" || box.tagName === "INPUT") {
+    box.value = text;
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    box.dispatchEvent(new Event("change", { bubbles: true }));
     return;
   }
-  box.focus();
-  document.execCommand("selectAll", false, null);
-  document.execCommand("insertText", false, text);
+  selectContenteditable(box);
+  let inserted = document.execCommand("insertText", false, text);
+  if (!inserted || normalizeText(box.innerText) !== normalizeText(text)) {
+    try {
+      await navigator.clipboard.writeText(text);
+      inserted = document.execCommand("paste", false, null);
+    } catch (error) {
+      inserted = false;
+    }
+  }
+  if (!inserted || !normalizeText(box.innerText).includes(normalizeText(text).slice(0, 40))) {
+    box.textContent = text;
+  }
+  box.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, inputType: "insertText", data: text }));
   box.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
-  setStatus("贴文已填入。图片/视频请用下方按钮打开后手动上传，最后你自己点发布。");
+  box.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: " " }));
+}
+
+async function fillPostText(text) {
+  if (!text) {
+    setStatus("没有贴文内容。");
+    return;
+  }
+  const opener = findClickableComposer();
+  if (opener) {
+    opener.click();
+    await sleep(900);
+  }
+  let box = await waitForTextbox();
+  if (!box) {
+    await navigator.clipboard.writeText(text);
+    setStatus("没找到 Facebook 发帖输入框，已先复制贴文。请手动点发帖输入框后 Ctrl+V。");
+    return;
+  }
+  await writeIntoTextbox(box, text);
+  await navigator.clipboard.writeText(text);
+  setStatus("已尝试填入贴文，同时已复制到剪贴板。如果 Facebook 没显示文字，直接在输入框 Ctrl+V。");
 }
 
 async function copyText(text) {
   await navigator.clipboard.writeText(text || "");
   setStatus("贴文已复制。");
+}
+
+function findExistingFileInput() {
+  const inputs = [...document.querySelectorAll('input[type="file"]')].reverse();
+  return inputs.find((input) => {
+    const accept = (input.getAttribute("accept") || "").toLowerCase();
+    return accept.includes("image") || accept.includes("video") || accept.includes("media") || !accept;
+  });
+}
+
+async function openMediaPicker() {
+  const mediaButton = findByText('div[role="button"], span[role="button"], button, div[aria-label]', [
+    "photo/video",
+    "photo",
+    "video",
+    "照片",
+    "图片",
+    "视频",
+    "相片"
+  ]);
+  if (mediaButton) {
+    mediaButton.click();
+    await sleep(800);
+  }
+  const input = findExistingFileInput();
+  if (input) {
+    input.click();
+    setStatus("已打开电脑文件选择窗口。选择图片或视频后，再手动发布。");
+    return;
+  }
+  setStatus("没有找到上传入口。请先手动点 Facebook 的“照片/视频”，然后再试一次。");
 }
 
 async function markPosted() {
@@ -73,15 +168,15 @@ function render() {
     <div class="cf-preview" id="cf-text"></div>
     <div id="cf-media"></div>
     <button id="cf-fill">填入贴文</button>
+    <button id="cf-upload">上传图片/视频</button>
     <button class="cf-secondary" id="cf-copy">复制贴文</button>
-    <a class="cf-secondary" id="cf-image" target="_blank" rel="noopener">打开图片</a>
-    <a class="cf-secondary" id="cf-video" target="_blank" rel="noopener">打开视频</a>
     <button id="cf-mark">已发布，打开下一个</button>
     <button class="cf-secondary" id="cf-refresh">刷新</button>
     <div class="cf-status"></div>
   `;
   document.body.appendChild(panel);
   panel.querySelector("#cf-fill").addEventListener("click", () => fillPostText(state?.post?.content || ""));
+  panel.querySelector("#cf-upload").addEventListener("click", openMediaPicker);
   panel.querySelector("#cf-copy").addEventListener("click", () => copyText(state?.post?.content || ""));
   panel.querySelector("#cf-mark").addEventListener("click", markPosted);
   panel.querySelector("#cf-refresh").addEventListener("click", loadState);
@@ -110,13 +205,7 @@ function updatePanel() {
     video.muted = true;
     media.appendChild(video);
   }
-  const image = document.getElementById("cf-image");
-  const video = document.getElementById("cf-video");
-  image.href = state.post?.image_url || "#";
-  video.href = state.post?.video_url || "#";
-  image.style.display = state.post?.image_url ? "block" : "none";
-  video.style.display = state.post?.video_url ? "block" : "none";
-  setStatus("如果你还没加入这个群，先点 Facebook 的加入。加入后点“填入贴文”，最后你自己点发布。");
+  setStatus("如果你还没加入这个群，先点 Facebook 的加入。加入后点“填入贴文”，再点“上传图片/视频”，最后你自己点发布。");
 }
 
 async function loadState() {
