@@ -15,17 +15,17 @@ crm_module = app_live_new.crm_module
 PAGE_CSS = """
 :root{font-family:Arial,"Microsoft YaHei",sans-serif;color:#17202a;background:#f4f6f8}
 *{box-sizing:border-box}body{margin:0}.top{height:58px;background:#16202a;color:#fff;display:flex;align-items:center;gap:12px;padding:0 16px}.back{color:#fff;text-decoration:none;font-weight:800}
-.wrap{max-width:1360px;margin:0 auto;padding:18px 16px;display:grid;gap:14px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.station{display:grid;grid-template-columns:0.88fr 1.12fr;gap:14px;align-items:start}
+.wrap{max-width:1540px;margin:0 auto;padding:18px 16px;display:grid;gap:14px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.station{display:grid;grid-template-columns:0.7fr 1.3fr;gap:14px;align-items:start}
 .card{background:#fff;border:1px solid #d8dee8;border-radius:8px;padding:16px;min-width:0}h1{font-size:18px;margin:0}h2{font-size:16px;margin:0 0 10px}.muted{color:#6a7682;font-size:13px;line-height:1.45}.tiny{font-size:12px}.strong{font-weight:800}
 .status{display:inline-flex;align-items:center;border-radius:999px;padding:4px 9px;font-size:12px;font-weight:800;white-space:nowrap}.ok{background:#eef7f4;color:#17634f}.bad{background:#fff2f0;color:#a8071a}.warn{background:#fff7e6;color:#ad6800}.info{background:#eef4ff;color:#1d4ed8}
 .rows{display:grid;gap:9px}.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;border-top:1px solid #edf0f4;padding-top:9px}.row:first-child{border-top:0;padding-top:0}
 label{display:grid;gap:6px;color:#3e4b57;font-size:12px;font-weight:700}input,textarea,select{width:100%;border:1px solid #cfd7e2;border-radius:8px;padding:10px 12px;font:inherit;background:#fff}textarea{min-height:210px;resize:vertical}.short-textarea{min-height:110px}
 .actions{display:flex;flex-wrap:wrap;gap:10px}.button,button{border:0;border-radius:8px;background:#1f8a70;color:#fff;font-weight:800;cursor:pointer;font-size:14px;padding:11px 14px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}.secondary{background:#e8edf3;color:#17202a}.ghost{background:#f7f9fb;color:#17202a;border:1px solid #d8dee8}
 .notice{border:1px solid #d8dee8;background:#f8fafb;border-radius:8px;padding:12px;color:#3e4b57;font-size:13px;line-height:1.45}.error{border-color:#ffccc7;background:#fff2f0;color:#a8071a}.success{border-color:#b7ebc6;background:#f6ffed;color:#17634f}
-.material-preview{border:1px solid #e3e8ef;border-radius:8px;overflow:hidden;background:#fbfcfd}.material-preview img{width:100%;display:block;max-height:280px;object-fit:contain;background:#f7f9fb}.material-preview .empty{padding:24px;text-align:center;color:#6a7682}
-.task{display:grid;gap:12px}.current-group{border:1px solid #1f8a70;background:#f2fbf8;border-radius:8px;padding:14px;display:grid;gap:10px}.task-title{font-size:20px;font-weight:900}.task-actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.selected-copy{position:absolute;left:-9999px;top:-9999px}
+.material-preview{border:1px solid #e3e8ef;border-radius:8px;overflow:hidden;background:#fbfcfd;display:grid;gap:0}.material-preview img,.material-preview video{width:100%;display:block;max-height:260px;object-fit:contain;background:#f7f9fb}.material-preview .empty{padding:24px;text-align:center;color:#6a7682}
+.task{display:grid;gap:12px}.current-group{border:1px solid #1f8a70;background:#f2fbf8;border-radius:8px;padding:14px;display:grid;gap:10px}.task-title{font-size:20px;font-weight:900}.task-actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.selected-copy{position:absolute;left:-9999px;top:-9999px}.facebook-frame{width:100%;height:720px;border:1px solid #d8dee8;border-radius:8px;background:#fff}.frame-note{margin-top:8px}
 .list{display:grid;gap:8px}.list-item{border:1px solid #e3e8ef;border-radius:8px;padding:10px;background:#fbfcfd;display:grid;gap:8px}.list-item.active{border-color:#1f8a70;background:#f2fbf8}.titleline{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.titleline a{color:#17202a;text-decoration:none}.clip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.preview{color:#3e4b57;font-size:13px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap}
-.group-list{display:grid;gap:7px;max-height:520px;overflow:auto;padding-right:4px}.group-row{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid #e3e8ef;border-radius:8px;background:#fff;padding:9px;text-decoration:none;color:#17202a}.group-row.current{border-color:#1f8a70;background:#f2fbf8}.group-row.done{opacity:.72}.badge{height:24px;min-width:24px;border-radius:999px;background:#e8edf3;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:900}.done .badge{background:#eef7f4;color:#17634f}
+.group-list{display:grid;gap:7px;max-height:360px;overflow:auto;padding-right:4px}.group-row{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid #e3e8ef;border-radius:8px;background:#fff;padding:9px;text-decoration:none;color:#17202a}.group-row.current{border-color:#1f8a70;background:#f2fbf8}.group-row.done{opacity:.72}.badge{height:24px;min-width:24px;border-radius:999px;background:#e8edf3;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:900}.done .badge{background:#eef7f4;color:#17634f}
 @media(max-width:980px){.station,.grid{grid-template-columns:1fr}.wrap{padding:12px}.top{height:54px}.row{grid-template-columns:1fr}.actions,.task-actions{display:grid;grid-template-columns:1fr}.button,button{width:100%;text-align:center}.group-list{max-height:none}}
 """
 
@@ -152,7 +152,7 @@ def promotion_table_error(error):
 def get_promotion_posts():
     return crm_module.sb_get_all(
         "promotion_posts",
-        {"select": "id,title,content,image_url,channel,status,created_at,updated_at", "order": "created_at.desc", "limit": "30"},
+        {"select": "id,title,content,image_url,video_url,channel,status,created_at,updated_at", "order": "created_at.desc", "limit": "30"},
         page_size=30,
         max_rows=30,
     )
@@ -248,6 +248,7 @@ PROMOTION_TEMPLATE = """
     <input type="hidden" name="channel" value="facebook_group">
     <label>标题<input name="title" value="{{ selected_post.title if selected_post else '' }}" placeholder="例如：Houston refrigerator gasket replacement"></label>
     <label>图片链接<input id="image-url" name="image_url" value="{{ selected_post.image_url if selected_post and selected_post.image_url else '' }}" placeholder="https://...jpg 或产品图片链接"></label>
+    <label>视频链接<input id="video-url" name="video_url" value="{{ selected_post.video_url if selected_post and selected_post.video_url else '' }}" placeholder="/static/promotion_assets/example.mp4"></label>
     <div class="material-preview" id="image-preview">
       {% if selected_post and selected_post.image_url %}
       <img src="{{ selected_post.image_url }}" alt="发帖图片">
@@ -255,11 +256,19 @@ PROMOTION_TEMPLATE = """
       <div class="empty">这里显示准备发布的图片</div>
       {% endif %}
     </div>
+    <div class="material-preview" id="video-preview">
+      {% if selected_post and selected_post.video_url %}
+      <video src="{{ selected_post.video_url }}" controls muted></video>
+      {% else %}
+      <div class="empty">这里显示准备发布的视频</div>
+      {% endif %}
+    </div>
     <label>准备发的文章<textarea id="post-content" name="content" placeholder="输入要发到群组的文章" required>{{ selected_post.content if selected_post else '' }}</textarea></label>
     <div class="actions">
       <button name="action" value="draft" type="submit" class="secondary">保存素材</button>
       <button type="button" class="ghost copy-post">复制文章</button>
       <a class="button secondary" id="open-image" href="{{ selected_post.image_url if selected_post and selected_post.image_url else '#' }}" target="_blank" rel="noopener">打开图片</a>
+      <a class="button secondary" id="open-video" href="{{ selected_post.video_url if selected_post and selected_post.video_url else '#' }}" target="_blank" rel="noopener">打开视频</a>
     </div>
   </form>
 </section>
@@ -290,6 +299,11 @@ PROMOTION_TEMPLATE = """
   </div>
   {% else %}
   <div class="notice">还没有群组。下面先添加或导入群组链接。</div>
+  {% endif %}
+
+  {% if current_group %}
+  <iframe class="facebook-frame" id="facebook-frame" src="{{ current_group.url }}"></iframe>
+  <div class="notice frame-note">如果 Facebook 阻止右侧内嵌显示，就用上面的“打开当前群”。这是 Facebook 的网页安全限制，不是 CRM 页面坏了。</div>
   {% endif %}
 
   <h2>发帖队列</h2>
@@ -342,8 +356,11 @@ PROMOTION_TEMPLATE = """
 <script>
 (function(){
   var imageInput = document.getElementById('image-url');
+  var videoInput = document.getElementById('video-url');
   var imagePreview = document.getElementById('image-preview');
+  var videoPreview = document.getElementById('video-preview');
   var openImage = document.getElementById('open-image');
+  var openVideo = document.getElementById('open-video');
   function currentText(){
     var live = document.getElementById('post-content');
     var saved = document.getElementById('copy-buffer');
@@ -367,7 +384,14 @@ PROMOTION_TEMPLATE = """
     imagePreview.innerHTML = url ? '<img src="' + url.replace(/"/g, '&quot;') + '" alt="发帖图片">' : '<div class="empty">这里显示准备发布的图片</div>';
     if (openImage) openImage.href = url || '#';
   }
+  function refreshVideo(){
+    if (!videoInput || !videoPreview) return;
+    var url = videoInput.value.trim();
+    videoPreview.innerHTML = url ? '<video src="' + url.replace(/"/g, '&quot;') + '" controls muted></video>' : '<div class="empty">这里显示准备发布的视频</div>';
+    if (openVideo) openVideo.href = url || '#';
+  }
   if (imageInput) imageInput.addEventListener('input', refreshImage);
+  if (videoInput) videoInput.addEventListener('input', refreshVideo);
   document.querySelectorAll('.copy-post').forEach(function(button){
     button.addEventListener('click', function(){
       copyCurrentPost();
@@ -433,6 +457,7 @@ def promotion_post_submit():
     title = request.form.get("title", "").strip()
     content = request.form.get("content", "").strip()
     image_url = request.form.get("image_url", "").strip()
+    video_url = request.form.get("video_url", "").strip()
     channel = request.form.get("channel", "facebook_group").strip()
     action = request.form.get("action", "draft").strip()
     if not content:
@@ -442,6 +467,7 @@ def promotion_post_submit():
         "title": title or content[:60],
         "content": content,
         "image_url": image_url,
+        "video_url": video_url,
         "channel": channel,
         "status": "draft",
         "raw_result": {},

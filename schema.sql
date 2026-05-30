@@ -57,6 +57,7 @@ create table if not exists promotion_posts (
   title text,
   content text not null,
   image_url text,
+  video_url text,
   channel text not null default 'facebook_page',
   status text not null default 'draft',
   raw_result jsonb not null default '{}',
