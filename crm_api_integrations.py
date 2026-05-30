@@ -287,7 +287,7 @@ PROMOTION_TEMPLATE = """
     <div class="muted clip">{{ current_group.url }}</div>
     <div class="group-meta"><span>{{ current_group.category or '未分类' }}</span><span>上次：{{ current_group.last_posted_at or '未发过' }}</span><span>{{ current_log.status if current_log else '待执行' }}</span></div>
     <div class="task-actions">
-      <a class="button" href="{{ current_group.url }}" target="_blank" rel="noopener">打开当前群</a>
+      <button type="button" class="open-in-frame" data-url="{{ current_group.url }}">在右侧打开</button>
       <button type="button" class="ghost copy-post">复制文章</button>
       <form method="post" action="/promotion/groups/{{ current_group.id }}/mark">
         <input type="hidden" name="post_id" value="{{ selected_post.id if selected_post else '' }}">
@@ -295,6 +295,7 @@ PROMOTION_TEMPLATE = """
         <button type="submit">标记已发/下一个</button>
       </form>
       {% if next_group %}<a class="button secondary" href="/promotion?post={{ selected_post.id if selected_post else '' }}&group={{ next_group.id }}">跳到下一个</a>{% endif %}
+      <a class="button secondary" href="{{ current_group.url }}" target="_blank" rel="noopener">外部打开</a>
     </div>
   </div>
   {% else %}
@@ -303,14 +304,14 @@ PROMOTION_TEMPLATE = """
 
   {% if current_group %}
   <iframe class="facebook-frame" id="facebook-frame" src="{{ current_group.url }}"></iframe>
-  <div class="notice frame-note">如果 Facebook 阻止右侧内嵌显示，就用上面的“打开当前群”。这是 Facebook 的网页安全限制，不是 CRM 页面坏了。</div>
+  <div class="notice frame-note">点击群组会优先在右侧显示。如果 Facebook 阻止内嵌显示，再用“外部打开”。这是 Facebook 的网页安全限制，不是 CRM 页面坏了。</div>
   {% endif %}
 
   <h2>发帖队列</h2>
   <div class="group-list">
     {% for group in groups %}
     {% set log = log_by_group.get(group.id) %}
-    <a class="group-row {{ 'current' if current_group and group.id == current_group.id else '' }} {{ 'done' if log and log.status == 'published' else '' }}" href="/promotion?post={{ selected_post.id if selected_post else '' }}&group={{ group.id }}">
+    <a class="group-row {{ 'current' if current_group and group.id == current_group.id else '' }} {{ 'done' if log and log.status == 'published' else '' }}" href="/promotion?post={{ selected_post.id if selected_post else '' }}&group={{ group.id }}" data-frame-url="{{ group.url }}">
       <span class="badge">{{ loop.index }}</span>
       <span class="clip"><strong>{{ group.name }}</strong><br><span class="muted tiny">{{ group.category or '未分类' }} · {{ group.last_posted_at or '未发过' }}</span></span>
       <span class="status {{ 'ok' if log and log.status == 'published' else 'warn' }}">{{ '已发' if log and log.status == 'published' else '待发' }}</span>
@@ -392,6 +393,24 @@ PROMOTION_TEMPLATE = """
   }
   if (imageInput) imageInput.addEventListener('input', refreshImage);
   if (videoInput) videoInput.addEventListener('input', refreshVideo);
+  document.querySelectorAll('.open-in-frame').forEach(function(button){
+    button.addEventListener('click', function(){
+      var frame = document.getElementById('facebook-frame');
+      var url = button.getAttribute('data-url');
+      if (frame && url) frame.src = url;
+    });
+  });
+  document.querySelectorAll('.group-row[data-frame-url]').forEach(function(link){
+    link.addEventListener('click', function(event){
+      var frame = document.getElementById('facebook-frame');
+      var url = link.getAttribute('data-frame-url');
+      if (!frame || !url) return;
+      event.preventDefault();
+      frame.src = url;
+      document.querySelectorAll('.group-row').forEach(function(row){ row.classList.remove('current'); });
+      link.classList.add('current');
+    });
+  });
   document.querySelectorAll('.copy-post').forEach(function(button){
     button.addEventListener('click', function(){
       copyCurrentPost();
