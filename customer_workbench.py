@@ -5,6 +5,7 @@ replaces the home screen with a three-zone customer management workspace.
 """
 
 import app_live_new
+import crm_api_integrations
 
 
 app = app_live_new.app
@@ -24,7 +25,7 @@ def is_closed_customer(customer):
 def filtered_customers(customers, view):
     if view == "closed":
         return [customer for customer in customers if is_closed_customer(customer)]
-    if view in {"ai", "settings"}:
+    if view in {"ai", "settings", "integrations"}:
         return []
     return [customer for customer in customers if not is_closed_customer(customer)]
 
@@ -35,6 +36,7 @@ def view_title(view):
         "quotes": "待报价",
         "closed": "成交客户",
         "ai": "AI固定话术",
+        "integrations": "接口管理",
     }.get(view, "客户池")
 
 
@@ -95,7 +97,7 @@ def load_workspace(selected_id):
     enrich_customers(customers)
     app_live_new.attach_last_message_preview(customers)
     customer_pool = filtered_customers(customers, view)
-    if view == "ai":
+    if view in {"ai", "integrations"}:
         selected_id = None
     elif customer_pool and not selected_id:
         selected_id = customer_pool[0]["id"]
@@ -113,6 +115,65 @@ def load_workspace(selected_id):
         )
         messages = [crm_module.decorate_message(message) for message in reversed(newest_messages)]
     return customers, customer_pool, selected, messages, selected_id, view
+
+
+def integration_cards():
+    status = crm_api_integrations.api_status_payload()
+    cards = [
+        {
+            "id": "messenger",
+            "name": "Messenger",
+            "summary": "Page Messenger customers, webhooks, names, avatars, and replies.",
+            "block": status.get("messenger") or {"ready": False, "items": []},
+        },
+        {
+            "id": "whatsapp",
+            "name": "WhatsApp",
+            "summary": "WhatsApp Business Cloud API phone, token, webhook, and message status.",
+            "block": status.get("whatsapp") or {"ready": False, "items": []},
+        },
+        {
+            "id": "shopify",
+            "name": "Shopify",
+            "summary": "Inventory, orders, fulfillment, customer purchase history, and AI lookup.",
+            "block": crm_api_integrations.safe_call(
+                lambda: {"ready": False, "items": [{"name": "Shopify connector", "ok": False, "detail": "Open /admin/shopify for detailed configuration."}]}
+            ),
+        },
+        {
+            "id": "promotion",
+            "name": "推广发帖",
+            "summary": "Facebook group posting workspace and promotion material queue.",
+            "block": {
+                "ready": (status.get("promotion") or {}).get("ready"),
+                "items": [
+                    {
+                        "name": "Facebook Page",
+                        "ok": (status.get("promotion") or {}).get("ready"),
+                        "detail": (status.get("promotion") or {}).get("detail"),
+                    },
+                    {
+                        "name": "Posting workspace",
+                        "ok": True,
+                        "detail": "Available at /promotion",
+                    },
+                ],
+            },
+        },
+        {
+            "id": "extension",
+            "name": "Chrome插件",
+            "summary": "Private Messenger, Marketplace, Facebook pages, and one-click customer capture.",
+            "block": {
+                "ready": False,
+                "items": [
+                    {"name": "Local extension", "ok": False, "detail": "Planned next: save customer name, avatar, source link, notes, and follow-up reminders."},
+                    {"name": "Official API dependency", "ok": True, "detail": "No Meta App Review required for first local helper version."},
+                ],
+            },
+        },
+    ]
+    return cards
 
 
 TEMPLATE = """
@@ -136,6 +197,7 @@ TEMPLATE = """
 <a class="nav-link {% if view == 'quotes' %}active{% endif %}" href="/?view=quotes"><span>待报价</span><span class="nav-count">{{ active_count }}</span></a>
 <a class="nav-link {% if view == 'closed' %}active{% endif %}" href="/?view=closed"><span>成交客户</span><span class="nav-count">{{ closed_count }}</span></a>
 <a class="nav-link {% if view == 'ai' %}active{% endif %}" href="/?view=ai"><span>AI话术</span><span class="nav-count">{{ fixed_reply_rules|length }}</span></a>
+<a class="nav-link {% if view == 'integrations' %}active{% endif %}" href="/?view=integrations"><span>接口管理</span><span class="nav-count">API</span></a>
 <a class="nav-link" href="/settings"><span>系统设置</span><span class="nav-count">lock</span></a>
 </div></details>
 <main class="app {% if mobile_chat_open %}mobile-chat-open{% endif %}">
@@ -146,7 +208,7 @@ TEMPLATE = """
 <a class="nav-link {% if view == 'quotes' %}active{% endif %}" href="/?view=quotes"><span>待报价</span><span class="nav-count">{{ active_count }}</span></a>
 <a class="nav-link {% if view == 'closed' %}active{% endif %}" href="/?view=closed"><span>成交客户</span><span class="nav-count">{{ closed_count }}</span></a>
 <a class="nav-link {% if view == 'ai' %}active{% endif %}" href="/?view=ai"><span>AI话术</span><span class="nav-count">{{ fixed_reply_rules|length }}</span></a>
-<a class="nav-link" href="/admin/channels"><span>接口状态</span><span class="nav-count">API</span></a>
+<a class="nav-link {% if view == 'integrations' %}active{% endif %}" href="/?view=integrations"><span>接口管理</span><span class="nav-count">API</span></a>
 <a class="nav-link" href="/settings"><span>系统设置</span><span class="nav-count">lock</span></a>
 </aside>
 <aside class="middle">
@@ -155,6 +217,17 @@ TEMPLATE = """
 {% for rule in fixed_reply_rules %}
 <a class="customer" href="#rule-{{ rule.id or loop.index }}"><div class="source-logo">AI</div><div class="customer-info"><div class="customer-name">{{ rule.title }}</div><div class="last-preview">{{ '启用' if rule.is_active else '停用' }} · {{ rule.category }}</div></div></a>
 {% else %}<div class="empty">还没有固定话术</div>{% endfor %}
+{% elif view == 'integrations' %}
+<div class="middle-head"><div class="middle-title">接口管理</div><div class="middle-sub">所有外部平台集中在这里</div></div>
+{% for card in integration_cards %}
+<a class="customer" href="#integration-{{ card.id }}">
+<div class="source-logo">{{ card.name[:2]|upper }}</div>
+<div class="customer-info">
+<div class="customer-top"><div class="customer-name">{{ card.name }}</div><div class="last-time">{{ 'OK' if card.block.ready else 'CHECK' }}</div></div>
+<div class="customer-bottom"><span class="source-logo">{{ loop.index }}</span><span class="last-preview">{{ card.summary }}</span></div>
+</div>
+</a>
+{% endfor %}
 {% else %}
 <div class="middle-head"><div class="middle-title">{{ view_title }}</div><div class="middle-sub">{{ customer_pool|length }} / {{ customers|length }} · 按最后互动排序</div></div>
 {% for customer in customer_pool %}
@@ -186,6 +259,31 @@ TEMPLATE = """
 {% endfor %}
 <form class="rule-row" method="post" action="/admin/ai/fixed-replies"><div class="rule-title">新增固定话术</div><input name="title" placeholder="例：发货时间"><input name="category" placeholder="shipping"><textarea name="keywords" placeholder="ship, shipping, 发货"></textarea><textarea name="reply_text" placeholder="固定回复内容"></textarea><label><input type="checkbox" name="is_active" value="1" checked> 启用</label><button type="submit">新增</button></form>
 </div></section>
+{% elif view == 'integrations' %}
+<header class="profile"><div class="profile-main"><div><h1>接口管理</h1><div class="profile-meta"><span class="pill tag">CRM内部页面</span><span class="pill">Messenger / WhatsApp / Shopify / 插件</span></div></div><div class="profile-actions"><a class="button secondary-button" href="/admin/channels">打开备用诊断页</a></div></div></header>
+<section class="workspace">
+<div class="panel">
+<h2>接口总览</h2>
+<div class="muted">这里以后就是所有平台接入的主入口，不再跳到独立后台页。绿色代表已接通，红色代表缺配置或缺权限。</div>
+{% for card in integration_cards %}
+<div class="rule-row" id="integration-{{ card.id }}">
+<div class="customer-top"><div class="rule-title">{{ card.name }}</div><span class="pill {{ 'tag' if card.block.ready else '' }}">{{ '已接通' if card.block.ready else '需要处理' }}</span></div>
+<div class="muted">{{ card.summary }}</div>
+{% for item in card.block['items'] %}
+<div class="field"><div class="label">{{ item.name }}</div><div class="value">{{ 'OK' if item.ok else '问题' }} · {{ item.detail }}</div></div>
+{% endfor %}
+</div>
+{% endfor %}
+</div>
+<aside class="panel">
+<h2>常用操作</h2>
+<a class="button" href="/?view=customers">回到客户池</a>
+<a class="button secondary-button" href="/admin/channels">备用诊断页</a>
+<a class="button secondary-button" href="/promotion">群组发帖工作台</a>
+<form method="post" action="/admin/import/messenger-conversations/all"><button class="secondary-button" type="submit">同步 Messenger 客户</button></form>
+<div class="muted">私人 Messenger / Marketplace 后面走 Chrome 插件，不放在官方 API 状态里硬等审批。</div>
+</aside>
+</section>
 {% elif selected_customer %}
 <header class="profile"><div class="profile-main">
 <a class="mobile-back" href="/?view={{ view }}" aria-label="Back">&lsaquo;</a>
@@ -207,7 +305,7 @@ TEMPLATE = """
 {% if selected_customer.original_channel_url %}<a class="button" href="{{ selected_customer.original_channel_url }}" target="_blank" rel="noopener">打开原始渠道</a>{% endif %}
 <a class="button secondary-button" href="/?view=today&customer={{ selected_customer.id }}">设为跟进</a>
 <a class="button secondary-button" href="/?view=quotes&customer={{ selected_customer.id }}">准备报价</a>
-<a class="button secondary-button" href="/admin/channels">接口状态</a>
+<a class="button secondary-button" href="/?view=integrations">接口管理</a>
 </div>
 </div>
 <div class="panel">
@@ -255,11 +353,12 @@ def live_dashboard():
         selected_customer=selected,
         selected_messages=messages,
         selected_customer_id=selected_id,
-        mobile_chat_open=bool(app_live_new.request.args.get("customer")) or view == "ai",
+        mobile_chat_open=bool(app_live_new.request.args.get("customer")) or view in {"ai", "integrations"},
         ai_draft=crm_module.load_ai_draft(selected, messages),
         view=view,
         view_title=view_title(view),
         fixed_reply_rules=fixed_reply_rules,
+        integration_cards=integration_cards(),
         active_count=active_count,
         closed_count=closed_count,
     )
