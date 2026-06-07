@@ -7,3 +7,4 @@ from meta_permissions import *
 from crm_api_integrations import *
 from shopify_integration import *
 from meta_oauth import *
+from customer_workbench import *
