@@ -81,6 +81,8 @@ def enrich_customers(customers):
 
 def load_workspace(selected_id):
     view = app_live_new.request.args.get("view", "customers")
+    if view == "unclassified":
+        view = "customers"
     customers = crm_module.sb_get_all(
         "customers",
         {
@@ -189,7 +191,7 @@ TEMPLATE = """
 <a class="mobile-back" href="/?view={{ view }}" aria-label="Back">&lsaquo;</a>
 <div class="avatar large">{% if selected_customer.profile_pic_url %}<img src="{{ selected_customer.profile_pic_url }}" alt="">{% else %}{{ (selected_customer.display_name or 'C')[:1] }}{% endif %}</div>
 <div><h1>{{ selected_customer.display_name or '未命名客户' }}</h1><div class="profile-meta"><span class="pill tag">{{ selected_customer.source_label }}</span><span class="pill">首次 {{ selected_customer.first_seen_at or '-' }}</span><span class="pill">最近 {{ selected_customer.last_seen_at or '-' }}</span><span class="pill">最后消息 {{ selected_customer.last_message_at or '-' }}</span>{% for tag in selected_customer.tags %}<span class="pill tag">{{ tag }}</span>{% endfor %}</div></div>
-<div class="profile-actions"><form method="post" action="/customers/{{ selected_customer.id }}/tags/closed">{% if '成交客户' in selected_customer.tags %}<input type="hidden" name="action" value="remove"><button class="secondary-button" type="submit">移出成交</button>{% else %}<input type="hidden" name="action" value="add"><button type="submit">标记成交</button>{% endif %}</form></div>
+<div class="profile-actions"><form method="post" action="/customers/{{ selected_customer.id }}/tags/closed?view={{ view }}">{% if '成交客户' in selected_customer.tags %}<input type="hidden" name="action" value="remove"><button class="secondary-button" type="submit">移出成交</button>{% else %}<input type="hidden" name="action" value="add"><button type="submit">标记成交</button>{% endif %}</form></div>
 </div></header>
 <section class="workspace">
 <div class="panel">
