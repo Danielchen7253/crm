@@ -133,6 +133,19 @@ def integration_cards():
             "block": status.get("whatsapp") or {"ready": False, "items": []},
         },
         {
+            "id": "sms",
+            "name": "SMS / 手机短信",
+            "summary": "Import customer text messages, phone numbers, follow-up reminders, and SMS conversation links.",
+            "block": {
+                "ready": False,
+                "items": [
+                    {"name": "SMS provider", "ok": False, "detail": "Choose a provider first: Twilio, OpenPhone, TextGrid, MessageBird, or another SMS inbox/API."},
+                    {"name": "Your phone number", "ok": False, "detail": "6263930488 can be connected only if the provider supports porting, hosted SMS, forwarding, or an approved messaging registration flow."},
+                    {"name": "CRM import path", "ok": True, "detail": "Ready to store phone, customer, message, source, and follow-up records after provider setup."},
+                ],
+            },
+        },
+        {
             "id": "shopify",
             "name": "Shopify",
             "summary": "Inventory, orders, fulfillment, customer purchase history, and AI lookup.",
@@ -260,7 +273,7 @@ TEMPLATE = """
 <form class="rule-row" method="post" action="/admin/ai/fixed-replies"><div class="rule-title">新增固定话术</div><input name="title" placeholder="例：发货时间"><input name="category" placeholder="shipping"><textarea name="keywords" placeholder="ship, shipping, 发货"></textarea><textarea name="reply_text" placeholder="固定回复内容"></textarea><label><input type="checkbox" name="is_active" value="1" checked> 启用</label><button type="submit">新增</button></form>
 </div></section>
 {% elif view == 'integrations' %}
-<header class="profile"><div class="profile-main"><div><h1>接口管理</h1><div class="profile-meta"><span class="pill tag">CRM内部页面</span><span class="pill">Messenger / WhatsApp / Shopify / 插件</span></div></div><div class="profile-actions"><a class="button secondary-button" href="/admin/channels">打开备用诊断页</a></div></div></header>
+<header class="profile"><div class="profile-main"><div><h1>接口管理</h1><div class="profile-meta"><span class="pill tag">CRM内部页面</span><span class="pill">Messenger / WhatsApp / SMS / Shopify / 插件</span></div></div><div class="profile-actions"><a class="button secondary-button" href="/admin/channels">打开备用诊断页</a></div></div></header>
 <section class="workspace">
 <div class="panel">
 <h2>接口总览</h2>
@@ -278,6 +291,7 @@ TEMPLATE = """
 <aside class="panel">
 <h2>常用操作</h2>
 <a class="button" href="/?view=customers">回到客户池</a>
+<a class="button secondary-button" href="#integration-sms">短信导入口</a>
 <a class="button secondary-button" href="/admin/channels">备用诊断页</a>
 <a class="button secondary-button" href="/promotion">群组发帖工作台</a>
 <form method="post" action="/admin/import/messenger-conversations/all"><button class="secondary-button" type="submit">同步 Messenger 客户</button></form>
