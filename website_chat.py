@@ -163,6 +163,9 @@ def save_website_message(customer_id, direction, text, attachments=None, raw=Non
 
 def is_order_or_private_question(text):
     lowered = (text or "").lower()
+    public_address_phrases = ["pickup address", "pickup location", "warehouse address", "where can i pick", "提货地址", "自取地址", "仓库地址"]
+    if any(phrase in lowered for phrase in public_address_phrases):
+        return False
     keywords = [
         "order",
         "tracking",
