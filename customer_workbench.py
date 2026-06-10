@@ -154,6 +154,20 @@ def integration_cards():
             ),
         },
         {
+            "id": "website_chat",
+            "name": "网页客服",
+            "summary": "Right-bottom chat widget for Shopify, gasket sites, product pages, photo upload, and CRM capture.",
+            "block": {
+                "ready": True,
+                "items": [
+                    {"name": "Widget script", "ok": True, "detail": "/chat/widget.js"},
+                    {"name": "Demo page", "ok": True, "detail": "/chat/demo"},
+                    {"name": "CRM message intake", "ok": True, "detail": "Website visitors are saved into customers and messages with source=website."},
+                    {"name": "Private order protection", "ok": True, "detail": "Order, tracking, address, warranty, payment, and refund questions require order number plus email or phone."},
+                ],
+            },
+        },
+        {
             "id": "promotion",
             "name": "推广发帖",
             "summary": "Facebook group posting workspace and promotion material queue.",
