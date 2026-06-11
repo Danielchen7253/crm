@@ -72,6 +72,64 @@ def visitor_name(contact):
     return None
 
 
+def detect_language(text):
+    text = text or ""
+    if re.search(r"[\u4e00-\u9fff]", text):
+        return "zh"
+    if re.search(r"[¿¡ñáéíóú]", text.lower()):
+        return "es"
+    return "en"
+
+
+def same_language_instruction(language):
+    if language == "zh":
+        return "Reply in Simplified Chinese."
+    if language == "es":
+        return "Reply in Spanish."
+    return "Reply in the same language as the customer's latest message."
+
+
+def localized_text(key, language):
+    zh = {
+        "verify": "订单、物流、保修、地址、付款等个人信息需要先验证身份。请输入订单号，以及下单时使用的邮箱或手机号。",
+        "human": "我现在无法访问订单系统，会让工作人员帮你核实。",
+        "verify_failed": "订单号和邮箱/手机号没有匹配成功。请检查后再发一次，或等待人工客服处理。",
+        "inventory_detail": "我可以帮你查库存。请发送产品名称、SKU、型号，或上传清晰照片。",
+        "photo_request": "请上传清晰的型号铭牌照片、配件照片和尺寸照片。我会先确认适配后再报价。",
+        "fallback": "收到，我会尽快帮你确认。",
+        "pickup": "提货地址：755 International Blvd, Houston, TX 77024。",
+        "shipping": "下午3点前付款的订单当天发货；下午3点后付款的订单下一个工作日发货；节假日顺延。",
+    }
+    en = {
+        "verify": "For order, tracking, warranty, address, or payment questions, please enter your order number plus the email or phone number used on the order.",
+        "human": "I could not access the order system right now. I will have a team member check this for you.",
+        "verify_failed": "I could not match that order with the email or phone provided. Please check the details or wait for a team member to help.",
+        "inventory_detail": "I can check inventory for you. Please send the product name, SKU, model number, or a clear photo.",
+        "photo_request": "Please upload a clear model tag photo, a photo of the part, and any size measurements. I will check compatibility before quoting.",
+        "fallback": "Thanks. I received your message and will check it shortly.",
+        "pickup": "Pickup address: 755 International Blvd, Houston, TX 77024.",
+        "shipping": "Orders paid before 3 PM ship the same day. Orders paid after 3 PM ship the next business day. Holidays may delay shipping.",
+    }
+    return (zh if language == "zh" else en).get(key, en.get(key, ""))
+
+
+def temporary_avatar_data_url(label, color="#1f8a70"):
+    label = clean_text(label, 2).upper() or "G"
+    svg = (
+        f"<svg xmlns='http://www.w3.org/2000/svg' width='96' height='96'>"
+        f"<rect width='96' height='96' rx='48' fill='{color}'/>"
+        f"<text x='48' y='58' text-anchor='middle' font-family='Arial' font-size='34' font-weight='700' fill='white'>{label}</text>"
+        f"</svg>"
+    )
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
+
+
+def contact_initial(contact, session_id):
+    name = visitor_name(contact) or session_id[-1:] or "G"
+    match = re.search(r"[A-Za-z0-9\u4e00-\u9fff]", name)
+    return match.group(0) if match else "G"
+
+
 def find_identity(session_id):
     rows = crm_module.sb_get(
         "customer_identities",
@@ -121,6 +179,7 @@ def ensure_website_customer(session_id, contact=None, context=None):
             "source": "website",
             "first_seen_at": now_iso(),
             "last_seen_at": now_iso(),
+            "profile_pic_url": temporary_avatar_data_url(contact_initial(contact, session_id)),
             "tags": ["网站客服"],
             "metadata": metadata,
         },
@@ -200,21 +259,21 @@ def extract_terms(text):
     return [term.strip(".,;:!?") for term in re.findall(r"[A-Za-z0-9][A-Za-z0-9._#/-]{2,}", text or "")][:5]
 
 
-def compact_inventory_reply(items):
+def compact_inventory_reply(items, language="en"):
     if not items:
-        return "I can check inventory for you. Please send the product name, SKU, model number, or a clear photo."
-    lines = ["Here is what I found in inventory:"]
+        return localized_text("inventory_detail", language)
+    lines = ["我查到的库存：" if language == "zh" else "Here is what I found in inventory:"]
     for item in items[:3]:
         title = item.get("title") or "Product"
         total = item.get("total_inventory")
         if total is None:
             total = "unknown"
-        lines.append(f"- {title}: total inventory {total}")
+        lines.append(f"- {title}: {'总库存' if language == 'zh' else 'total inventory'} {total}")
         for variant in (item.get("variants") or [])[:4]:
             sku = variant.get("sku") or variant.get("title") or "variant"
             qty = variant.get("inventory_quantity")
             lines.append(f"  {sku}: {qty if qty is not None else 'unknown'}")
-    lines.append("Please confirm the exact model/photo before purchase if this is a fitment question.")
+    lines.append("如果是适配问题，请先确认准确型号或上传照片。" if language == "zh" else "Please confirm the exact model/photo before purchase if this is a fitment question.")
     return "\n".join(lines)
 
 
@@ -225,7 +284,7 @@ def order_matches_contact(order, email, phone):
     return bool((email and email == order_email) or (phone and phone == order_phone))
 
 
-def compact_order_reply(order):
+def compact_order_reply(order, language="en"):
     tracking = []
     for fulfillment in order.get("fulfillments") or []:
         for item in fulfillment.get("trackingInfo") or []:
@@ -233,27 +292,77 @@ def compact_order_reply(order):
             company = item.get("company") or ""
             url = item.get("url") or ""
             tracking.append(" ".join(part for part in [company, number, url] if part))
-    lines = [
-        f"Order {order.get('name')}:",
-        f"Payment: {order.get('displayFinancialStatus') or 'unknown'}",
-        f"Fulfillment: {order.get('displayFulfillmentStatus') or 'unknown'}",
-    ]
-    if tracking:
-        lines.append("Tracking: " + "; ".join(tracking[:3]))
+    if language == "zh":
+        lines = [
+            f"订单 {order.get('name')}：",
+            f"付款状态：{order.get('displayFinancialStatus') or 'unknown'}",
+            f"发货状态：{order.get('displayFulfillmentStatus') or 'unknown'}",
+        ]
     else:
-        lines.append("Tracking is not available yet.")
+        lines = [
+            f"Order {order.get('name')}:",
+            f"Payment: {order.get('displayFinancialStatus') or 'unknown'}",
+            f"Fulfillment: {order.get('displayFulfillmentStatus') or 'unknown'}",
+        ]
+    if tracking:
+        lines.append(("物流信息：" if language == "zh" else "Tracking: ") + "; ".join(tracking[:3]))
+    else:
+        lines.append("暂时还没有物流单号。" if language == "zh" else "Tracking is not available yet.")
     return "\n".join(lines)
 
 
-def fixed_reply(text):
+def fixed_reply(text, language="en"):
     draft = crm_module.fixed_reply_for(text)
     if draft and draft.get("draft_text"):
+        lowered = draft["draft_text"].lower()
+        if "pickup address" in lowered:
+            return localized_text("pickup", language)
+        if "ship" in lowered or "orders paid" in lowered:
+            return localized_text("shipping", language)
         return draft["draft_text"]
     return None
 
 
+def website_openai_reply(message_text, contact, language):
+    if not crm_module.OPENAI_API_KEY:
+        return None
+    prompt = {
+        "customer_name": visitor_name(contact) or "Website visitor",
+        "latest_message": message_text,
+        "business_rules": [
+            "Do not reveal order, tracking, warranty, payment, address, or purchase-history information unless the user has verified with order number plus email or phone.",
+            "For model, photo, size, and compatibility questions, ask for clear model tag photo, part photo, and measurements.",
+            "Pickup address: 755 International Blvd, Houston, TX 77024.",
+            "Orders paid before 3 PM ship the same day. Orders paid after 3 PM ship the next business day. Holidays may delay shipping.",
+        ],
+    }
+    response = requests.post(
+        "https://api.openai.com/v1/responses",
+        headers={"Authorization": f"Bearer {crm_module.OPENAI_API_KEY}", "Content-Type": "application/json"},
+        json={
+            "model": crm_module.OPENAI_MODEL,
+            "input": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a concise website customer-service assistant for Coolfix Pro Supply. "
+                        f"{same_language_instruction(language)} "
+                        "Be practical and direct. Do not invent inventory, price, compatibility, shipping, or private order details."
+                    ),
+                },
+                {"role": "user", "content": str(prompt)},
+            ],
+        },
+        timeout=25,
+    )
+    response.raise_for_status()
+    text = crm_module.parse_openai_text(response.json())
+    return text or None
+
+
 def safe_website_reply(message_text, contact):
     message_text = clean_text(message_text)
+    language = detect_language(message_text)
     if is_order_or_private_question(message_text):
         order_number = clean_text(contact.get("order_number"), 80)
         email = normalize_email(contact.get("email"))
@@ -261,21 +370,21 @@ def safe_website_reply(message_text, contact):
         if not order_number or not (email or phone):
             return {
                 "kind": "needs_verification",
-                "text": "For order, tracking, warranty, address, or payment questions, please enter your order number plus the email or phone number used on the order.",
+                "text": localized_text("verify", language),
             }
         try:
             orders = shopify_integration.search_shopify_orders(order_number, limit=5)
         except Exception:
-            return {"kind": "needs_human", "text": "I could not access the order system right now. I will have a team member check this for you."}
+            return {"kind": "needs_human", "text": localized_text("human", language)}
         for order in orders:
             if order_matches_contact(order, email, phone):
-                return {"kind": "verified_order", "text": compact_order_reply(order), "verified_order": order.get("name")}
+                return {"kind": "verified_order", "text": compact_order_reply(order, language), "verified_order": order.get("name")}
         return {
             "kind": "verification_failed",
-            "text": "I could not match that order with the email or phone provided. Please check the details or wait for a team member to help.",
+            "text": localized_text("verify_failed", language),
         }
 
-    canned = fixed_reply(message_text)
+    canned = fixed_reply(message_text, language)
     if canned:
         return {"kind": "fixed", "text": canned}
 
@@ -286,23 +395,22 @@ def safe_website_reply(message_text, contact):
             except Exception:
                 items = []
             if items:
-                return {"kind": "inventory", "text": compact_inventory_reply(items)}
-        return {"kind": "inventory_needs_detail", "text": compact_inventory_reply([])}
+                return {"kind": "inventory", "text": compact_inventory_reply(items, language)}
+        return {"kind": "inventory_needs_detail", "text": compact_inventory_reply([], language)}
 
     if crm_module.should_learn_without_draft({"text": message_text, "attachments": []}):
         return {
             "kind": "photo_request",
-            "text": "Please upload a clear model tag photo, a photo of the part, and any size measurements. I will check compatibility before quoting.",
+            "text": localized_text("photo_request", language),
         }
 
     try:
-        customer = {"display_name": visitor_name(contact) or "Website visitor"}
-        draft = crm_module.openai_reply_for(customer, [{"direction": "inbound", "text": message_text}])
-        if draft and draft.get("draft_text"):
-            return {"kind": "ai_draft", "text": draft["draft_text"]}
+        draft = website_openai_reply(message_text, contact, language)
+        if draft:
+            return {"kind": "ai_draft", "text": draft}
     except requests.RequestException:
         pass
-    return {"kind": "fallback", "text": "Thanks. I received your message and will check it shortly."}
+    return {"kind": "fallback", "text": localized_text("fallback", language)}
 
 
 @app.after_request
@@ -394,7 +502,7 @@ def chat_widget_js():
     .cfx-chat-button{position:fixed;right:18px;bottom:18px;z-index:2147483647;border:0;border-radius:999px;background:#1f8a70;color:#fff;width:58px;height:58px;font:700 15px Arial;box-shadow:0 14px 34px rgba(15,23,42,.28);cursor:pointer}
     .cfx-chat{position:fixed;right:18px;bottom:88px;z-index:2147483647;width:min(380px,calc(100vw - 24px));height:min(620px,calc(100vh - 110px));background:#fff;border:1px solid #d8dee8;border-radius:10px;box-shadow:0 18px 50px rgba(15,23,42,.25);display:none;overflow:hidden;font-family:Arial,sans-serif;color:#17202a}
     .cfx-chat.open{display:flex;flex-direction:column}.cfx-head{background:#16202a;color:#fff;padding:13px 14px;font-weight:800;display:flex;justify-content:space-between;align-items:center}.cfx-close{background:transparent;color:#fff;border:0;font-size:20px;cursor:pointer}
-    .cfx-body{flex:1;overflow:auto;background:#f4f6f8;padding:12px;display:flex;flex-direction:column;gap:8px}.cfx-msg{max-width:86%;border:1px solid #d8dee8;border-radius:8px;background:#fff;padding:9px 11px;font-size:14px;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere}.cfx-msg.me{align-self:flex-end;background:#eaf2ff}.cfx-msg.bot{align-self:flex-start}
+    .cfx-body{flex:1;overflow:auto;background:#f4f6f8;padding:12px;display:flex;flex-direction:column;gap:8px}.cfx-row{display:flex;gap:8px;align-items:flex-end;max-width:94%}.cfx-row.me{align-self:flex-end;flex-direction:row-reverse}.cfx-row.bot{align-self:flex-start}.cfx-avatar{width:30px;height:30px;border-radius:50%;background:#1f8a70;color:#fff;display:flex;align-items:center;justify-content:center;font:800 12px Arial;flex:none;overflow:hidden}.cfx-row.me .cfx-avatar{background:#2563eb}.cfx-msg{border:1px solid #d8dee8;border-radius:8px;background:#fff;padding:9px 11px;font-size:14px;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere}.cfx-row.me .cfx-msg{background:#eaf2ff}.cfx-row.bot .cfx-msg{background:#fff}
     .cfx-form{border-top:1px solid #d8dee8;padding:10px;background:#fff;display:grid;gap:8px}.cfx-fields{display:grid;grid-template-columns:1fr 1fr;gap:7px}.cfx-fields input,.cfx-form textarea{width:100%;border:1px solid #cfd7e2;border-radius:8px;padding:8px;font:13px Arial}.cfx-form textarea{min-height:64px;resize:vertical}.cfx-actions{display:flex;gap:8px}.cfx-actions button,.cfx-upload{border:0;border-radius:8px;background:#1f8a70;color:#fff;font-weight:800;padding:9px 11px;cursor:pointer;text-align:center;font-size:13px}.cfx-upload{background:#e8edf3;color:#17202a}.cfx-upload input{display:none}.cfx-hint{font-size:12px;color:#6a7682}.cfx-file{font-size:12px;color:#17634f}
     @media(max-width:520px){.cfx-chat{right:0;left:0;bottom:0;width:100vw;height:82vh;border-radius:12px 12px 0 0}.cfx-chat-button{right:14px;bottom:14px}.cfx-fields{grid-template-columns:1fr}}
   `;
@@ -406,7 +514,7 @@ def chat_widget_js():
   panel.className = 'cfx-chat';
   panel.innerHTML = `
     <div class="cfx-head"><span>Coolfix Support</span><button class="cfx-close" aria-label="Close">×</button></div>
-    <div class="cfx-body"><div class="cfx-msg bot">Hi, how can I help? You can ask general questions anonymously. For order, tracking, warranty, payment, or address questions, please enter order number plus email or phone.</div></div>
+    <div class="cfx-body"><div class="cfx-row bot"><div class="cfx-avatar">CF</div><div class="cfx-msg">Hi, how can I help? You can ask general questions anonymously. For order, tracking, warranty, payment, or address questions, please enter order number plus email or phone.</div></div></div>
     <form class="cfx-form">
       <div class="cfx-fields"><input name="name" placeholder="Name"><input name="phone" placeholder="Phone"></div>
       <div class="cfx-fields"><input name="email" placeholder="Email"><input name="order_number" placeholder="Order # for private info"></div>
@@ -421,7 +529,13 @@ def chat_widget_js():
   const fileInput = form.querySelector('input[type=file]');
   const fileLabel = panel.querySelector('.cfx-file');
   let attachments = [];
-  function addMsg(text, cls){ const div=document.createElement('div'); div.className='cfx-msg '+cls; div.textContent=text; body.appendChild(div); body.scrollTop=body.scrollHeight; }
+  function customerInitial(){ const raw=(form.name.value || form.email.value || form.phone.value || 'G').trim(); const m=raw.match(/[A-Za-z0-9\u4e00-\u9fff]/); return (m ? m[0] : 'G').toUpperCase(); }
+  function addMsg(text, cls){
+    const row=document.createElement('div'); row.className='cfx-row '+cls;
+    const avatar=document.createElement('div'); avatar.className='cfx-avatar'; avatar.textContent = cls === 'me' ? customerInitial() : 'CF';
+    const bubble=document.createElement('div'); bubble.className='cfx-msg'; bubble.textContent=text;
+    row.appendChild(avatar); row.appendChild(bubble); body.appendChild(row); body.scrollTop=body.scrollHeight;
+  }
   function contact(){ return { name: form.name.value, phone: form.phone.value, email: form.email.value, order_number: form.order_number.value }; }
   async function ensureSession(){ await fetch(API + '/api/chat/session', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({session_id:sid, contact:contact(), context:context()})}); }
   button.onclick = async () => { panel.classList.add('open'); await ensureSession(); };
