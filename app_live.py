@@ -9,3 +9,5 @@ from shopify_integration import *
 from meta_oauth import *
 from customer_workbench import *
 from website_chat import *
+
+start_auto_sync()

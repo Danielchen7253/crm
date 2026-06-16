@@ -15,7 +15,11 @@ SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 SUPABASE_PUBLISHABLE_KEY = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
 META_PAGE_ID = os.getenv("META_PAGE_ID", "")
 AUTO_SYNC_SECONDS = float(os.getenv("CRM_AUTO_SYNC_SECONDS", "2"))
+AUTO_SYNC_FULL_SECONDS = float(os.getenv("CRM_AUTO_SYNC_FULL_SECONDS", "60"))
+AUTO_SYNC_RECENT_LIMIT = int(os.getenv("CRM_AUTO_SYNC_RECENT_LIMIT", "25"))
+AUTO_SYNC_RECENT_MESSAGES_LIMIT = int(os.getenv("CRM_AUTO_SYNC_RECENT_MESSAGES_LIMIT", "10"))
 AUTO_SYNC_STATE = {"started": False, "last_ok": None, "last_error": None, "runs": 0, "imported": 0}
+AUTO_SYNC_LAST_FULL = 0.0
 CLOSED_TAG = "\u6210\u4ea4\u5ba2\u6237"
 CRM_ADMIN_PASSWORD = os.getenv("CRM_ADMIN_PASSWORD", "")
 CRM_SESSION_SECRET = os.getenv("CRM_SESSION_SECRET") or os.getenv("META_APP_SECRET") or os.getenv("SUPABASE_SERVICE_ROLE_KEY") or "dev-crm-session-secret"
@@ -305,26 +309,36 @@ def sync_latest_messenger():
         return 0
     conversations = crm_module.graph_get(
         f"{page_id}/conversations",
-        {"fields": "participants{id,name,profile_pic,picture},messages.limit(3){id,message,from,to,created_time,attachments}", "limit": "1"},
+        {
+            "fields": (
+                f"participants{{id,name,profile_pic,picture}},"
+                f"messages.limit({max(1, min(AUTO_SYNC_RECENT_MESSAGES_LIMIT, 25))})"
+                "{id,message,from,to,created_time,attachments}"
+            ),
+            "limit": str(max(1, min(AUTO_SYNC_RECENT_LIMIT, 100))),
+        },
     )
     imported = 0
     for conversation in conversations.get("data", []):
-        people = [p for p in conversation.get("participants", {}).get("data", []) if p.get("id") != page_id]
-        if not people:
-            continue
-        customer_id, _ = crm_module.ensure_customer(people[0]["id"], people[0])
-        for message in conversation.get("messages", {}).get("data", []):
-            direction = "outbound" if message.get("from", {}).get("id") == page_id else "inbound"
-            saved = crm_module.save_message(customer_id, message.get("id"), direction, message.get("message"), message.get("attachments", {}).get("data", []), message, message.get("created_time"))
-            if saved:
-                imported += 1
+        result = crm_module.import_conversation(conversation)
+        imported += result.get("messages_imported", 0)
     return imported
+
+
+def sync_full_messenger_if_due():
+    global AUTO_SYNC_LAST_FULL
+    now = time.time()
+    if now - AUTO_SYNC_LAST_FULL < max(AUTO_SYNC_FULL_SECONDS, 10):
+        return 0
+    AUTO_SYNC_LAST_FULL = now
+    result = crm_module.sync_messenger_conversations_paginated(max_pages=5, page_limit=50, messages_limit=10)
+    return int(result.get("messages_imported") or 0)
 
 
 def auto_sync_loop():
     while True:
         try:
-            imported = sync_latest_messenger()
+            imported = sync_latest_messenger() + sync_full_messenger_if_due()
             AUTO_SYNC_STATE["last_ok"] = crm_module.now_iso()
             AUTO_SYNC_STATE["last_error"] = None
             AUTO_SYNC_STATE["runs"] += 1
@@ -570,4 +584,3 @@ def live_dashboard():
 
 
 app.view_functions["dashboard"] = live_dashboard
-start_auto_sync()
