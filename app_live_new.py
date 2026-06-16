@@ -246,6 +246,7 @@ def is_public_path(path):
         path in {"/login", "/health"}
         or path.startswith("/webhooks/")
         or path.startswith("/api/chat/")
+        or path.startswith("/api/capture/")
         or path.startswith("/chat/")
         or path.startswith("/data-deletion")
     )

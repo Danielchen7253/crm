@@ -43,8 +43,10 @@ def view_title(view):
 def source_label(source):
     return {
         "messenger": "Messenger",
+        "private_messenger": "私人 Messenger",
         "whatsapp": "WhatsApp",
         "marketplace": "Marketplace",
+        "facebook": "Facebook",
         "shopify": "Shopify",
         "tiktok": "TikTok",
         "website": "网站",
@@ -56,13 +58,15 @@ def source_icon(source):
         return "https://upload.wikimedia.org/wikipedia/commons/5/5e/WhatsApp_icon.png"
     if source == "messenger":
         return "https://upload.wikimedia.org/wikipedia/commons/6/63/Facebook_Messenger_logo_2025.svg"
+    if source in {"private_messenger", "marketplace", "facebook"}:
+        return "https://upload.wikimedia.org/wikipedia/commons/6/63/Facebook_Messenger_logo_2025.svg"
     return ""
 
 
 def original_channel_url(customer):
     metadata = customer.get("metadata") or {}
     if isinstance(metadata, dict):
-        for key in ("profile_url", "conversation_url", "thread_url", "link", "url"):
+        for key in ("profile_url", "conversation_url", "thread_url", "marketplace_item_url", "link", "url"):
             if metadata.get(key):
                 return metadata[key]
     source = customer.get("source")
