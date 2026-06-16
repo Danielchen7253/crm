@@ -8,6 +8,14 @@ from app_live_new import app, crm_module
 MESSENGER_CONVERSATION_FOLDERS = ["", "inbox", "page_done", "other", "spam"]
 
 
+def redact_error_text(error):
+    text = str(error)
+    token = crm_module.current_meta_page_access_token()
+    if token:
+        text = text.replace(token, "[redacted]")
+    return text
+
+
 def import_messenger_folder(folder, fields, max_pages, page_limit, seen_conversations):
     page_id = crm_module.current_meta_page_id()
     path = f"{page_id}/conversations/{folder}" if folder else f"{page_id}/conversations"
@@ -76,7 +84,7 @@ def sync_messenger_conversations_all_folders(max_pages=200, page_limit=100, mess
                     detail = response.json()
                 except ValueError:
                     detail = response.text[:500]
-            folder_errors.append({"folder": folder or "default", "error": str(error), "detail": detail})
+            folder_errors.append({"folder": folder or "default", "error": redact_error_text(error), "detail": detail})
             continue
 
         folder_results.append(result)
@@ -100,7 +108,7 @@ def import_messenger_conversations_fixed():
     except RuntimeError as error:
         return jsonify({"ok": False, "error": str(error)}), 400
     except requests.RequestException as error:
-        return jsonify({"ok": False, "error": str(error)}), 502
+        return jsonify({"ok": False, "error": redact_error_text(error)}), 502
     return jsonify({"ok": True, **result})
 
 

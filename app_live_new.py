@@ -335,6 +335,14 @@ def sync_full_messenger_if_due():
     return int(result.get("messages_imported") or 0)
 
 
+def redact_sync_error(error):
+    text = str(error)
+    token = crm_module.current_meta_page_access_token()
+    if token:
+        text = text.replace(token, "[redacted]")
+    return text
+
+
 def auto_sync_loop():
     while True:
         try:
@@ -344,7 +352,7 @@ def auto_sync_loop():
             AUTO_SYNC_STATE["runs"] += 1
             AUTO_SYNC_STATE["imported"] += imported
         except Exception as error:
-            AUTO_SYNC_STATE["last_error"] = str(error)
+            AUTO_SYNC_STATE["last_error"] = redact_sync_error(error)
         time.sleep(max(AUTO_SYNC_SECONDS, 1))
 
 
