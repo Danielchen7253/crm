@@ -8,10 +8,11 @@ function renderStatus(data) {
   }
 
   statusEl.textContent = [
-    `Status: ${data.running ? "Running" : "Idle"}`,
+    `Status: ${data.uploading ? "Uploading" : (data.running ? "Watching scroll" : "Idle")}`,
     `Message: ${data.message || "Ready"}`,
-    `Queue: ${data.index || 0}/${data.total || 0}`,
-    `Uploaded: ${data.saved || 0}`,
+    `Found: ${data.found || 0}`,
+    `Queued: ${data.queued || 0}`,
+    `Uploaded: ${data.uploaded || data.saved || 0}`,
     `Failed: ${data.failed || 0}`,
     `Skipped: ${data.skipped || 0}`
   ].join("\n");
@@ -77,17 +78,17 @@ function pollStatus() {
 }
 
 document.getElementById("start").addEventListener("click", async () => {
-  await send("startSequentialCapture");
+  await send("startScrollCapture");
   pollStatus();
 });
 
 document.getElementById("stop").addEventListener("click", async () => {
-  await send("stopSequentialCapture");
+  await send("stopScrollCapture");
   pollStatus();
 });
 
 document.getElementById("capture-current").addEventListener("click", async () => {
-  await send("captureCurrentOnly");
+  await send("scanVisible");
   pollStatus();
 });
 
