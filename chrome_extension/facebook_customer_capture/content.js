@@ -3,7 +3,7 @@
   window.__COOLFIX_CRM_CUSTOMER_CAPTURE_LOADED__ = true;
 
   const config = window.COOLFIX_CRM_CAPTURE_CONFIG || {};
-  const JOB_KEY = "coolfix_customer_sequential_capture_v2";
+  const JOB_KEY = "coolfix_marketplace_customer_capture_v3";
   let processing = false;
   let lastUrl = location.href;
   let processingStartedAt = 0;
@@ -54,6 +54,23 @@
     return "facebook";
   }
 
+  function visiblePageText(limit = 12000) {
+    return clean(document.body?.innerText || "", limit);
+  }
+
+  function isMarketplaceInboxView() {
+    const url = String(location.href || "").toLowerCase();
+    if (url.includes("marketplace")) return true;
+
+    const title = `${document.title || ""} ${pageTitle()}`.toLowerCase();
+    if (title.includes("marketplace")) return true;
+
+    const headings = [...document.querySelectorAll("h1,h2,[role='heading'],[aria-selected='true']")]
+      .filter(visible)
+      .map((el) => clean(el.innerText || el.textContent || el.getAttribute("aria-label"), 120).toLowerCase());
+    return headings.some((text) => text === "marketplace" || text.includes("marketplace chats") || text.includes("marketplace"));
+  }
+
   function pageTitle() {
     const og = document.querySelector('meta[property="og:title"]')?.content;
     return clean(og || document.title, 180)
@@ -68,6 +85,27 @@
       || value.includes("facebook.com/messages/t/")
       || value.includes("/messages/t/")
       || value.includes("/messages/e2ee/t/");
+  }
+
+  function marketplaceThreadSignal(anchor) {
+    const row = anchor.closest("[role='row'],li,div") || anchor;
+    const text = clean(`${row.innerText || row.textContent || ""} ${anchor.getAttribute("aria-label") || ""}`, 1600).toLowerCase();
+    if (!text) return false;
+
+    const strongSignals = [
+      "marketplace",
+      "facebook marketplace",
+      "listing",
+      "seller",
+      "buyer",
+      "offer",
+      "is this available",
+      "still available",
+      "item",
+      "pickup",
+      "pick up"
+    ];
+    return strongSignals.some((signal) => text.includes(signal));
   }
 
   function likelyCustomerLink(href, mode = currentMode()) {
@@ -109,9 +147,10 @@
       || clean(anchor.getAttribute("aria-label"), 160);
   }
 
-  function linkFromAnchor(anchor) {
+  function linkFromAnchor(anchor, options = {}) {
     const href = absoluteUrl(anchor.getAttribute("href") || anchor.href || "");
     if (!likelyCustomerLink(href)) return null;
+    if (options.marketplaceOnly && !options.marketplaceView && !marketplaceThreadSignal(anchor)) return null;
     const name = nameFromAnchor(anchor);
     if (!name || name.length < 2) return null;
     return {
@@ -119,7 +158,7 @@
       display_name: clean(name, 160),
       profile_pic_url: bestAvatar(anchor),
       latest_message: clean(anchor.innerText || anchor.textContent, 1000),
-      source: sourceFromUrl(href)
+      source: options.marketplaceOnly ? "marketplace" : sourceFromUrl(href)
     };
   }
 
@@ -131,8 +170,10 @@
     const local = new Set();
     const links = [];
     const mode = currentMode();
+    const marketplaceOnly = mode === "messenger";
+    const marketplaceView = isMarketplaceInboxView();
     for (const anchor of [...document.querySelectorAll("a[href]")].filter(visible)) {
-      const item = linkFromAnchor(anchor);
+      const item = linkFromAnchor(anchor, { marketplaceOnly, marketplaceView });
       if (!item) continue;
       if (mode === "messenger" && !isMessengerThreadLink(item.url)) continue;
       const key = customerItemKey(item);
@@ -149,7 +190,9 @@
       .map((el) => {
         const anchors = [...el.querySelectorAll("a[href]")].filter((anchor) => {
           const href = absoluteUrl(anchor.getAttribute("href") || anchor.href || "");
-          return likelyCustomerLink(href);
+          if (!likelyCustomerLink(href)) return false;
+          if (currentMode() === "messenger" && !isMarketplaceInboxView() && !marketplaceThreadSignal(anchor)) return false;
+          return true;
         });
         const rect = el.getBoundingClientRect();
         return {
@@ -241,7 +284,7 @@
     await sleep(500);
 
     const messages = extractMessages();
-    const source = sourceFromUrl(location.href);
+    const source = seed.source || sourceFromUrl(location.href);
     const displayName = bestHeading() || seed.display_name || pageTitle() || "Facebook Customer";
     return {
       source,
@@ -250,7 +293,7 @@
       profile_url: seed.url || "",
       conversation_url: location.href,
       thread_url: location.href,
-      marketplace_item_url: source === "marketplace" ? location.href : "",
+      marketplace_item_url: source === "marketplace" ? (seed.url || location.href) : "",
       page_url: location.href,
       page_title: pageTitle(),
       latest_message: messages[messages.length - 1]?.text || seed.latest_message || "",
