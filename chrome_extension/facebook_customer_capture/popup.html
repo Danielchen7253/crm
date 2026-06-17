@@ -3,29 +3,26 @@
 <head>
   <meta charset="utf-8">
   <style>
-    :root{font-family:Arial,sans-serif;color:#17202a}
+    :root{font-family:Arial,"Microsoft YaHei",sans-serif;color:#17202a}
     body{width:360px;margin:0;background:#f6f8fb;padding:14px}
-    h1{font-size:16px;margin:0 0 10px}
-    .card{background:#fff;border:1px solid #d8dee8;border-radius:8px;padding:12px;display:grid;gap:10px}
-    .muted{color:#6a7682;font-size:12px;line-height:1.45}
-    button,a{border:0;border-radius:8px;background:#1f8a70;color:#fff;text-decoration:none;font-weight:800;padding:10px 12px;cursor:pointer;text-align:center}
+    h1{font-size:17px;margin:0 0 10px}
+    .card{background:#fff;border:1px solid #d8dee8;border-radius:8px;padding:14px;display:grid;gap:12px}
+    .muted{color:#6a7682;font-size:13px;line-height:1.5}
+    button,a{border:0;border-radius:8px;background:#1f8a70;color:#fff;text-decoration:none;font-weight:800;padding:12px 14px;cursor:pointer;text-align:center;font-size:14px}
     .secondary{background:#e8edf3;color:#17202a}
     .danger{background:#fff2f0;color:#a8071a;border:1px solid #ffccc7}
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-    #status{font-size:12px;color:#3e4b57;line-height:1.4;white-space:pre-wrap}
+    #status{font-size:13px;color:#3e4b57;line-height:1.55;white-space:pre-wrap;border:1px solid #edf0f4;border-radius:8px;padding:10px;background:#fbfcfd;min-height:112px}
   </style>
 </head>
 <body>
   <h1>Coolfix CRM 客户采集</h1>
   <div class="card">
-    <div class="muted">打开 Facebook、Messenger 或 Marketplace 页面后，先保存当前客户；在客户列表页可以扫描当前屏幕可见客户。</div>
-    <button id="save-current">保存当前客户</button>
-    <button id="scan-visible" class="secondary">扫描当前页面客户列表</button>
-    <div class="row">
-      <a class="secondary" href="https://crm-8t7y.onrender.com/?view=customers" target="_blank">打开 CRM</a>
-      <button id="test-config" class="secondary">检查连接</button>
-    </div>
-    <div id="status"></div>
+    <div class="muted">打开 Facebook / Messenger / Marketplace 客户列表后，点“开始挂机采集”。插件会慢慢滚动页面，先抓客户资料，每 20 个自动上传 CRM。</div>
+    <button id="start">开始挂机采集客户</button>
+    <button id="stop" class="danger">停止并上传剩余客户</button>
+    <button id="scan-visible" class="secondary">只抓当前屏幕一次</button>
+    <a class="secondary" href="https://crm-8t7y.onrender.com/?view=customers" target="_blank">打开 CRM</a>
+    <div id="status">准备就绪。</div>
   </div>
   <script src="popup.js"></script>
 </body>

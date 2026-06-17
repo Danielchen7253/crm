@@ -1,8 +1,21 @@
 const statusEl = document.getElementById("status");
+let statusTimer = null;
 
-function setStatus(text, isError = false) {
-  statusEl.textContent = text;
-  statusEl.className = isError ? "danger" : "";
+function renderStatus(data) {
+  if (!data || !data.ok) {
+    statusEl.textContent = (data && data.error) || "当前页面没有响应，请刷新 Facebook 页面后再试。";
+    return;
+  }
+
+  statusEl.textContent = [
+    `状态：${data.running ? "挂机采集中" : "空闲"}`,
+    `提示：${data.message || "准备就绪"}`,
+    `已发现：${data.scanned || 0}`,
+    `待上传：${data.queued || 0}`,
+    `已上传：${data.uploaded || 0}`,
+    `失败：${data.failed || 0}`,
+    `扫描轮次：${data.rounds || 0}`
+  ].join("\n");
 }
 
 async function activeTab() {
@@ -10,28 +23,42 @@ async function activeTab() {
   return tab;
 }
 
-async function sendToPage(action) {
+async function send(action) {
   const tab = await activeTab();
   if (!tab || !tab.id) {
-    setStatus("没有找到当前页面。", true);
-    return;
+    renderStatus({ ok: false, error: "没有找到当前页面。" });
+    return null;
   }
+
   try {
     const response = await chrome.tabs.sendMessage(tab.id, { action });
-    if (!response || !response.ok) {
-      setStatus((response && response.error) || "页面没有响应，刷新 Facebook 页面后再试。", true);
-      return;
-    }
-    if (action === "captureCurrent") {
-      setStatus(`已保存：${response.result.display_name || "当前客户"}`);
-    } else {
-      setStatus(`已扫描并提交 ${response.saved || 0} 个客户。`);
-    }
+    renderStatus(response);
+    return response;
   } catch (error) {
-    setStatus("插件还没有注入当前页面。请刷新 Facebook/Messenger 页面后再点。", true);
+    renderStatus({ ok: false, error: "插件没有在当前页面生效。请刷新 Facebook / Messenger 页面后再点。" });
+    return null;
   }
 }
 
-document.getElementById("save-current").addEventListener("click", () => sendToPage("captureCurrent"));
-document.getElementById("scan-visible").addEventListener("click", () => sendToPage("scanVisible"));
-document.getElementById("test-config").addEventListener("click", () => sendToPage("testConfig"));
+function pollStatus() {
+  if (statusTimer) clearInterval(statusTimer);
+  statusTimer = setInterval(() => send("status"), 1500);
+}
+
+document.getElementById("start").addEventListener("click", async () => {
+  await send("startAutoCapture");
+  pollStatus();
+});
+
+document.getElementById("stop").addEventListener("click", async () => {
+  await send("stopAutoCapture");
+  pollStatus();
+});
+
+document.getElementById("scan-visible").addEventListener("click", async () => {
+  await send("scanVisible");
+  pollStatus();
+});
+
+send("status");
+pollStatus();

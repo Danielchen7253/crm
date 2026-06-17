@@ -1,8 +1,24 @@
 (function () {
   const config = window.COOLFIX_CRM_CAPTURE_CONFIG || {};
 
+  const state = {
+    running: false,
+    timer: null,
+    seen: new Set(),
+    batch: [],
+    scanned: 0,
+    uploaded: 0,
+    failed: 0,
+    rounds: 0,
+    message: "Ready"
+  };
+
   function clean(text, limit = 500) {
     return String(text || "").replace(/\s+/g, " ").trim().slice(0, limit);
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   function visible(el) {
@@ -10,6 +26,14 @@
     const rect = el.getBoundingClientRect();
     const style = window.getComputedStyle(el);
     return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+  }
+
+  function absoluteUrl(url) {
+    try {
+      return new URL(url, location.href).href;
+    } catch {
+      return "";
+    }
   }
 
   function sourceFromUrl(url) {
@@ -27,112 +51,120 @@
       .replace(/\s*\(\d+\)\s*$/, "");
   }
 
-  function bestHeading() {
-    const headings = [...document.querySelectorAll("h1,h2,[role='heading']")]
-      .filter(visible)
-      .map((el) => clean(el.innerText || el.textContent, 180))
-      .filter((text) => text && !/facebook|messenger|marketplace/i.test(text));
-    return headings[0] || "";
-  }
-
-  function bestAvatar() {
-    const candidates = [...document.images]
+  function bestAvatar(root) {
+    const candidates = [...root.querySelectorAll("img")]
       .filter(visible)
       .map((img) => {
         const rect = img.getBoundingClientRect();
         const src = img.currentSrc || img.src || "";
-        const score = Math.min(rect.width, rect.height) + (src.includes("fbcdn") || src.includes("fbsbx") ? 60 : 0);
+        const score = Math.min(rect.width, rect.height) + (src.includes("fbcdn") || src.includes("fbsbx") ? 80 : 0);
         return { src, score, width: rect.width, height: rect.height };
       })
-      .filter((item) => item.src && item.width >= 32 && item.height >= 32 && !item.src.includes("emoji"))
+      .filter((item) => item.src && item.width >= 24 && item.height >= 24 && !item.src.includes("emoji"))
       .sort((a, b) => b.score - a.score);
     return candidates[0]?.src || "";
   }
 
-  function bestProfileUrl() {
-    const anchors = [...document.querySelectorAll("a[href]")]
-      .filter(visible)
-      .map((a) => a.href)
-      .filter((href) => {
-        const value = href.toLowerCase();
-        return value.includes("facebook.com/") &&
-          !value.includes("/groups/") &&
-          !value.includes("/marketplace/") &&
-          !value.includes("/messages/") &&
-          !value.includes("/notifications") &&
-          !value.includes("/settings") &&
-          !value.includes("/help");
-      });
-    return anchors[0] || "";
+  function likelyCustomerLink(href) {
+    const value = String(href || "").toLowerCase();
+    if (!value.includes("facebook.com") && !value.includes("messenger.com")) return false;
+    if (value.includes("/groups/") || value.includes("/settings") || value.includes("/help")) return false;
+    if (value.includes("/notifications") || value.includes("/watch") || value.includes("/reel/")) return false;
+    if (value.includes("/marketplace/you/")) return false;
+    if (value.includes("/marketplace/item/")) return true;
+    if (value.includes("/messages/") || value.includes("messenger.com/t/")) return true;
+    if (value.includes("/profile.php")) return true;
+    return /facebook\.com\/[a-z0-9_.-]+\/?(\?|$)/i.test(value);
   }
 
-  function latestVisibleMessage() {
-    const texts = [...document.querySelectorAll('[data-ad-preview="message"], [dir="auto"], div[role="row"], span')]
-      .filter(visible)
-      .map((el) => clean(el.innerText || el.textContent, 500))
-      .filter((text) => text.length >= 2 && text.length <= 500)
-      .filter((text) => !/^(like|reply|send|search|home|notifications|messenger)$/i.test(text));
-    return texts.slice(-8).join(" | ").slice(0, 1000);
+  function nameFromAnchor(anchor) {
+    const text = clean(anchor.innerText || anchor.textContent, 1000);
+    const lines = text.split(/\n+/).map((line) => clean(line, 180)).filter(Boolean);
+    return lines.find((line) => !/^(sponsored|marketplace|facebook|messenger|active|now|you:|sent|reply)$/i.test(line))
+      || lines[0]
+      || clean(anchor.getAttribute("aria-label"), 160);
   }
 
-  function currentCustomer() {
-    const title = pageTitle();
-    const name = bestHeading() || title || "Facebook Customer";
-    const source = sourceFromUrl(location.href);
+  function extractFromAnchor(anchor) {
+    const href = absoluteUrl(anchor.getAttribute("href") || anchor.href || "");
+    if (!likelyCustomerLink(href)) return null;
+
+    const name = nameFromAnchor(anchor);
+    if (!name || name.length < 2) return null;
+
+    const source = sourceFromUrl(href);
+    const text = clean(anchor.innerText || anchor.textContent, 1000);
     return {
       source,
       display_name: clean(name, 160),
-      profile_pic_url: bestAvatar(),
-      profile_url: bestProfileUrl(),
-      conversation_url: location.href,
-      thread_url: location.href,
-      marketplace_item_url: source === "marketplace" ? location.href : "",
+      profile_pic_url: bestAvatar(anchor),
+      profile_url: href,
+      conversation_url: href,
+      thread_url: href,
+      marketplace_item_url: source === "marketplace" ? href : "",
       page_url: location.href,
-      page_title: title,
-      latest_message: latestVisibleMessage(),
+      page_title: pageTitle(),
+      latest_message: text,
       captured_at: new Date().toISOString()
     };
   }
 
-  function visibleListCustomers() {
-    const source = sourceFromUrl(location.href);
-    const rows = [...document.querySelectorAll("a[href]")]
-      .filter(visible)
-      .map((a) => {
-        const text = clean(a.innerText || a.textContent, 180);
-        const href = a.href;
-        const img = a.querySelector("img");
-        return {
-          source,
-          display_name: text.split("\n")[0] || text,
-          profile_pic_url: img ? (img.currentSrc || img.src || "") : "",
-          profile_url: href,
-          conversation_url: href,
-          thread_url: href,
-          page_url: location.href,
-          page_title: pageTitle(),
-          latest_message: text,
-          captured_at: new Date().toISOString()
-        };
-      })
-      .filter((item) => item.display_name && item.display_name.length >= 2)
-      .filter((item) => {
-        const href = String(item.profile_url || "").toLowerCase();
-        return href.includes("facebook.com") || href.includes("messenger.com");
-      });
+  function customerKey(item) {
+    return [
+      item.source || "",
+      item.profile_url || item.conversation_url || item.thread_url || "",
+      (item.display_name || "").toLowerCase()
+    ].join("|");
+  }
 
-    const seen = new Set();
-    return rows.filter((item) => {
-      const key = `${item.profile_url}|${item.display_name}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    }).slice(0, 25);
+  function scanVisibleCustomers() {
+    const anchors = [...document.querySelectorAll("a[href]")].filter(visible);
+    const found = anchors.map(extractFromAnchor).filter(Boolean);
+    let added = 0;
+
+    for (const item of found) {
+      const key = customerKey(item);
+      if (!key || state.seen.has(key)) continue;
+      state.seen.add(key);
+      state.batch.push(item);
+      state.scanned += 1;
+      added += 1;
+    }
+
+    state.message = added ? `Found ${added} new customers` : "No new visible customers";
+    return added;
+  }
+
+  function scrollTarget() {
+    const viewportArea = window.innerWidth * window.innerHeight;
+    const candidates = [...document.querySelectorAll("div, main, section")]
+      .filter(visible)
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        const overflow = el.scrollHeight - el.clientHeight;
+        const area = rect.width * rect.height;
+        const text = clean(el.innerText || "", 1600);
+        const hints = (text.match(/marketplace|messenger|message|reply|active|sent|buyer|customer/gi) || []).length;
+        return { el, overflow, area, hints };
+      })
+      .filter((item) => item.overflow > 80 && item.area > viewportArea * 0.06)
+      .sort((a, b) => (b.hints * 3000 + b.overflow + b.area / 1000) - (a.hints * 3000 + a.overflow + a.area / 1000));
+    return candidates[0]?.el || null;
+  }
+
+  function slowScroll() {
+    const target = scrollTarget();
+    if (target) {
+      target.scrollTop += Math.max(280, Math.floor(target.clientHeight * 0.55));
+      target.dispatchEvent(new Event("scroll", { bubbles: true }));
+      return;
+    }
+    window.scrollBy(0, Math.max(320, Math.floor(window.innerHeight * 0.55)));
   }
 
   async function submit(customers) {
     if (!config.crmUrl || !config.captureToken || config.captureToken.includes("PUT_")) {
-      throw new Error("插件 config.js 没配置 CRM 地址或采集 token。");
+      throw new Error("插件缺少 CRM 地址或导入口令，请检查 config.js。");
     }
     const body = customers.length === 1 ? customers[0] : { customers };
     const response = await fetch(`${config.crmUrl.replace(/\/$/, "")}/api/capture/facebook-customer`, {
@@ -150,28 +182,86 @@
     return data;
   }
 
+  async function uploadBatch(force = false) {
+    if (!state.batch.length) return;
+    if (!force && state.batch.length < 20) return;
+
+    const customers = state.batch.splice(0, 20);
+    state.message = `Uploading ${customers.length} customers`;
+
+    try {
+      const data = await submit(customers);
+      state.uploaded += Number(data.saved || customers.length);
+      state.message = `Uploaded ${state.uploaded} customers`;
+    } catch (error) {
+      state.failed += customers.length;
+      state.message = `Upload failed: ${error.message || error}`;
+    }
+  }
+
+  async function runLoop() {
+    while (state.running) {
+      state.rounds += 1;
+      scanVisibleCustomers();
+      await uploadBatch(false);
+      slowScroll();
+      await sleep(2200);
+    }
+  }
+
+  async function startAutoCapture() {
+    if (state.running) return progress();
+    state.running = true;
+    state.message = "Auto capture started";
+    runLoop();
+    return progress();
+  }
+
+  async function stopAutoCapture() {
+    state.running = false;
+    state.message = "Stopping and uploading remaining customers";
+    await uploadBatch(true);
+    state.message = "Stopped";
+    return progress();
+  }
+
+  function progress() {
+    return {
+      ok: true,
+      running: state.running,
+      scanned: state.scanned,
+      uploaded: state.uploaded,
+      queued: state.batch.length,
+      failed: state.failed,
+      rounds: state.rounds,
+      message: state.message
+    };
+  }
+
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
-      if (message.action === "testConfig") {
-        sendResponse({ ok: true, result: { display_name: config.crmUrl ? "配置已加载" : "未配置" } });
+      if (message.action === "status") {
+        sendResponse(progress());
         return;
       }
-      if (message.action === "captureCurrent") {
-        const customer = currentCustomer();
-        const data = await submit([customer]);
-        sendResponse({ ok: true, result: data.results?.[0] || customer });
+      if (message.action === "testConfig") {
+        sendResponse({ ok: true, message: config.crmUrl ? "配置已加载" : "缺少配置" });
+        return;
+      }
+      if (message.action === "startAutoCapture") {
+        sendResponse(await startAutoCapture());
+        return;
+      }
+      if (message.action === "stopAutoCapture") {
+        sendResponse(await stopAutoCapture());
         return;
       }
       if (message.action === "scanVisible") {
-        const customers = visibleListCustomers();
-        if (!customers.length) {
-          sendResponse({ ok: false, error: "当前页面没有识别到可保存的客户链接。" });
-          return;
-        }
-        const data = await submit(customers);
-        sendResponse({ ok: true, saved: data.saved || 0, result: data });
+        const added = scanVisibleCustomers();
+        await uploadBatch(true);
+        sendResponse({ ...progress(), added });
       }
-    })().catch((error) => sendResponse({ ok: false, error: error.message || String(error) }));
+    })().catch((error) => sendResponse({ ok: false, error: error.message || String(error), ...progress() }));
     return true;
   });
 })();
