@@ -32,8 +32,6 @@ def filtered_customers(customers, view):
 
 def view_title(view):
     return {
-        "today": "今日跟进",
-        "quotes": "待报价",
         "closed": "成交客户",
         "ai": "AI固定话术",
         "integrations": "接口管理",
@@ -87,7 +85,7 @@ def enrich_customers(customers):
 
 def load_workspace(selected_id):
     view = app_live_new.request.args.get("view", "customers")
-    if view == "unclassified":
+    if view in {"unclassified", "today", "quotes"}:
         view = "customers"
     customers = crm_module.sb_get_all(
         "customers",
@@ -224,8 +222,6 @@ TEMPLATE = """
 <body>
 <details class="mobile-menu"><summary aria-label="Menu">&#9776;</summary><div class="mobile-menu-panel">
 <a class="nav-link {% if view == 'customers' %}active{% endif %}" href="/?view=customers"><span>客户池</span><span class="nav-count">{{ active_count }}</span></a>
-<a class="nav-link {% if view == 'today' %}active{% endif %}" href="/?view=today"><span>今日跟进</span><span class="nav-count">{{ active_count }}</span></a>
-<a class="nav-link {% if view == 'quotes' %}active{% endif %}" href="/?view=quotes"><span>待报价</span><span class="nav-count">{{ active_count }}</span></a>
 <a class="nav-link {% if view == 'closed' %}active{% endif %}" href="/?view=closed"><span>成交客户</span><span class="nav-count">{{ closed_count }}</span></a>
 <a class="nav-link {% if view == 'ai' %}active{% endif %}" href="/?view=ai"><span>AI话术</span><span class="nav-count">{{ fixed_reply_rules|length }}</span></a>
 <a class="nav-link {% if view == 'integrations' %}active{% endif %}" href="/?view=integrations"><span>接口管理</span><span class="nav-count">API</span></a>
@@ -235,8 +231,6 @@ TEMPLATE = """
 <aside class="nav">
 <div class="nav-title">CRM</div>
 <a class="nav-link {% if view == 'customers' %}active{% endif %}" href="/?view=customers"><span>客户池</span><span class="nav-count">{{ active_count }}</span></a>
-<a class="nav-link {% if view == 'today' %}active{% endif %}" href="/?view=today"><span>今日跟进</span><span class="nav-count">{{ active_count }}</span></a>
-<a class="nav-link {% if view == 'quotes' %}active{% endif %}" href="/?view=quotes"><span>待报价</span><span class="nav-count">{{ active_count }}</span></a>
 <a class="nav-link {% if view == 'closed' %}active{% endif %}" href="/?view=closed"><span>成交客户</span><span class="nav-count">{{ closed_count }}</span></a>
 <a class="nav-link {% if view == 'ai' %}active{% endif %}" href="/?view=ai"><span>AI话术</span><span class="nav-count">{{ fixed_reply_rules|length }}</span></a>
 <a class="nav-link {% if view == 'integrations' %}active{% endif %}" href="/?view=integrations"><span>接口管理</span><span class="nav-count">API</span></a>
@@ -335,8 +329,6 @@ TEMPLATE = """
 </div>
 <div class="action-grid">
 {% if selected_customer.original_channel_url %}<a class="button" href="{{ selected_customer.original_channel_url }}" target="_blank" rel="noopener">打开原始渠道</a>{% endif %}
-<a class="button secondary-button" href="/?view=today&customer={{ selected_customer.id }}">设为跟进</a>
-<a class="button secondary-button" href="/?view=quotes&customer={{ selected_customer.id }}">准备报价</a>
 <a class="button secondary-button" href="/?view=integrations">接口管理</a>
 </div>
 </div>
