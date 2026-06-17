@@ -6,6 +6,8 @@
 
   const config = window.COOLFIX_CRM_CAPTURE_CONFIG || {};
   const JOB_KEY = "coolfix_customer_sequential_capture_v1";
+  let processing = false;
+  let lastUrl = location.href;
 
   function clean(text, limit = 500) {
     return String(text || "").replace(/\s+/g, " ").trim().slice(0, limit);
@@ -27,6 +29,15 @@
       return new URL(url, location.href).href;
     } catch {
       return "";
+    }
+  }
+
+  function comparableUrl(url) {
+    try {
+      const parsed = new URL(url, location.href);
+      return `${parsed.hostname.replace(/^www\./, "")}${parsed.pathname.replace(/\/$/, "")}`;
+    } catch {
+      return String(url || "").split("?")[0].split("#")[0].replace(/\/$/, "");
     }
   }
 
@@ -243,17 +254,33 @@
     const next = job.queue[job.index];
     job.message = `打开第 ${job.index + 1}/${job.queue.length} 个客户`;
     await setJob(job);
+    if (comparableUrl(location.href) === comparableUrl(next.url)) {
+      setTimeout(processCurrentPageIfNeeded, 1200);
+      return;
+    }
     location.href = next.url;
   }
 
   async function processCurrentPageIfNeeded() {
+    if (processing) return;
     const job = await getJob();
     if (!job.running || !Array.isArray(job.queue) || job.index >= job.queue.length) return;
 
     const current = job.queue[job.index];
-    if (!current || location.href.split("#")[0] !== String(current.url || "").split("#")[0]) return;
+    if (!current) return;
+
+    if (comparableUrl(location.href) !== comparableUrl(current.url)) {
+      const ageMs = Date.now() - Date.parse(job.updatedAt || job.startedAt || new Date().toISOString());
+      if (ageMs > 8000) {
+        await goNext(job);
+      }
+      return;
+    }
+
+    processing = true;
 
     job.message = `采集第 ${job.index + 1}/${job.queue.length} 个客户资料和聊天记录`;
+    job.updatedAt = new Date().toISOString();
     await setJob(job);
 
     try {
@@ -267,7 +294,9 @@
     }
 
     job.index += 1;
+    job.updatedAt = new Date().toISOString();
     await setJob(job);
+    processing = false;
     await sleep(1500);
     await goNext(job);
   }
@@ -284,6 +313,7 @@
       saved: 0,
       failed: 0,
       startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       message: `已建立 ${queue.length} 个客户队列，准备逐个采集`
     };
     await setJob(job);
@@ -335,5 +365,14 @@
     return true;
   });
 
+  function watchJob() {
+    if (location.href !== lastUrl) {
+      lastUrl = location.href;
+      setTimeout(processCurrentPageIfNeeded, 1800);
+    }
+    processCurrentPageIfNeeded();
+  }
+
   processCurrentPageIfNeeded();
+  setInterval(watchJob, 3000);
 })();
