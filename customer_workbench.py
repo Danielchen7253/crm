@@ -4,6 +4,10 @@ This module keeps the existing Messenger/WhatsApp plumbing intact and only
 replaces the home screen with a three-zone customer management workspace.
 """
 
+from datetime import datetime, timezone
+
+import requests
+
 import app_live_new
 import crm_api_integrations
 
@@ -11,6 +15,11 @@ import crm_api_integrations
 app = app_live_new.app
 CLOSED_TAG = app_live_new.CLOSED_TAG
 crm_module = app_live_new.crm_module
+AI_TONE_DEFAULT = (
+    "Tone: friendly, direct, professional, short. Sound like the business owner, "
+    "not a robot. Do not overpromise. Ask for model/photo when needed."
+)
+CAPACITOR_KEYWORDS = ("capacitor", "cbb65", "uf", "mfd", "microfarad", "电容")
 
 
 def customer_tags(customer):
@@ -25,17 +34,189 @@ def is_closed_customer(customer):
 def filtered_customers(customers, view):
     if view == "closed":
         return [customer for customer in customers if is_closed_customer(customer)]
-    if view in {"ai", "settings", "integrations"}:
+    if view in {"ai", "ops", "settings", "integrations"}:
         return []
     return [customer for customer in customers if not is_closed_customer(customer)]
 
 
 def view_title(view):
+    if view == "ops":
+        return "AI客户运营"
     return {
         "closed": "成交客户",
         "ai": "AI固定话术",
         "integrations": "接口管理",
     }.get(view, "客户池")
+
+
+def parse_customer_time(value):
+    if not value:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    except ValueError:
+        return datetime.min.replace(tzinfo=timezone.utc)
+
+
+def load_ai_ops_tone():
+    try:
+        rows = crm_module.sb_get(
+            "integration_settings",
+            {
+                "provider": "eq.crm_ai",
+                "key": "eq.ops_tone",
+                "select": "value",
+                "limit": "1",
+            },
+        )
+    except requests.RequestException:
+        rows = []
+    if rows and rows[0].get("value"):
+        return rows[0]["value"]
+    return AI_TONE_DEFAULT
+
+
+def save_ai_ops_tone(tone):
+    payload = {
+        "provider": "crm_ai",
+        "key": "ops_tone",
+        "value": tone.strip() or AI_TONE_DEFAULT,
+    }
+    try:
+        rows = crm_module.sb_get(
+            "integration_settings",
+            {"provider": "eq.crm_ai", "key": "eq.ops_tone", "select": "key", "limit": "1"},
+        )
+        if rows:
+            return crm_module.sb_patch(
+                "integration_settings",
+                payload,
+                {"provider": "eq.crm_ai", "key": "eq.ops_tone"},
+            )
+        return crm_module.sb_post("integration_settings", payload)
+    except requests.RequestException:
+        return []
+
+
+def load_recent_message_index(limit=8000):
+    try:
+        rows = crm_module.sb_get_all(
+            "messages",
+            {
+                "select": "customer_id,text,sent_at,direction,message_type",
+                "order": "sent_at.desc.nullslast",
+            },
+            page_size=1000,
+            max_rows=limit,
+        )
+    except requests.RequestException:
+        rows = []
+    message_index = {}
+    for row in rows:
+        customer_id = row.get("customer_id")
+        if not customer_id:
+            continue
+        bucket = message_index.setdefault(customer_id, {"text": [], "latest": None, "count": 0})
+        if row.get("text"):
+            bucket["text"].append(str(row["text"]))
+        if not bucket["latest"] and row.get("sent_at"):
+            bucket["latest"] = row.get("sent_at")
+        bucket["count"] += 1
+    return message_index
+
+
+def customer_message_text(customer, message_index):
+    bucket = message_index.get(customer.get("id"), {})
+    parts = [customer.get("display_name") or "", customer.get("last_message_preview") or ""]
+    parts.extend(bucket.get("text") or [])
+    return "\n".join(parts).lower()
+
+
+def contains_any_keyword(text, keywords):
+    lowered = text.lower()
+    return any(keyword.strip().lower() in lowered for keyword in keywords if keyword.strip())
+
+
+def looks_chinese(text):
+    return any("\u4e00" <= char <= "\u9fff" for char in text)
+
+
+def relay_followup_draft(customer, context_text, tone):
+    name = customer.get("display_name") or ""
+    first_name = name.split()[0] if name else ""
+    if looks_chinese(context_text):
+        prefix = f"{first_name}，" if first_name else "您好，"
+        return (
+            f"{prefix}之前您咨询过电容。我们这边也有 HVAC 继电器/接触器现货，"
+            "如果您最近维修需要，可以把型号或照片发我，我帮您确认库存和价格。"
+        )
+    prefix = f"Hi {first_name}, " if first_name else "Hi, "
+    return (
+        prefix
+        + "just checking in. Since you asked about capacitors before, we also have HVAC relays "
+        "and contactors in stock. If you need any for upcoming jobs, send me the specs or photos "
+        "and I can help check availability and price."
+    )
+
+
+def build_ai_ops_state(customers):
+    args = app_live_new.request.args
+    mode = args.get("mode", "oldest")
+    raw_keywords = args.get("keywords", ",".join(CAPACITOR_KEYWORDS))
+    keywords = [item.strip() for item in raw_keywords.replace("，", ",").split(",") if item.strip()]
+    try:
+        max_results = max(1, min(int(args.get("limit", "50")), 300))
+    except ValueError:
+        max_results = 50
+    tone = load_ai_ops_tone()
+    active_customers = [customer for customer in customers if not is_closed_customer(customer)]
+    message_index = load_recent_message_index()
+    rows = []
+
+    if mode == "oldest":
+        ordered = sorted(active_customers, key=lambda customer: parse_customer_time(customer.get("last_message_at")))
+        for customer in ordered[:max_results]:
+            rows.append(
+                {
+                    "customer": customer,
+                    "reason": f"最后互动：{customer.get('last_message_at') or '从未记录'}",
+                    "draft": "",
+                }
+            )
+        title = "最久未联系客户"
+        summary = "按最后聊天时间从久到近排列，方便先追回最久没跟进的人。"
+    else:
+        matched = []
+        for customer in active_customers:
+            context_text = customer_message_text(customer, message_index)
+            if contains_any_keyword(context_text, keywords):
+                matched.append((customer, context_text))
+        matched.sort(key=lambda pair: parse_customer_time(pair[0].get("last_message_at")))
+        for customer, context_text in matched[:max_results]:
+            draft = relay_followup_draft(customer, context_text, tone) if mode == "relay" else ""
+            rows.append(
+                {
+                    "customer": customer,
+                    "reason": "匹配关键词：" + ", ".join(keywords),
+                    "draft": draft,
+                }
+            )
+        title = "电容客户推荐继电器" if mode == "relay" else "问过电容的客户"
+        summary = "从最近消息记录里筛选客户，不自动发送，只生成可以复制或修改的跟进内容。"
+
+    return {
+        "mode": mode,
+        "keywords": raw_keywords,
+        "limit": max_results,
+        "tone": tone,
+        "title": title,
+        "summary": summary,
+        "rows": rows,
+        "total": len(rows),
+    }
 
 
 def source_label(source):
@@ -99,7 +280,7 @@ def load_workspace(selected_id):
     enrich_customers(customers)
     app_live_new.attach_last_message_preview(customers)
     customer_pool = filtered_customers(customers, view)
-    if view in {"ai", "integrations"}:
+    if view in {"ai", "ops", "integrations"}:
         selected_id = None
     elif customer_pool and not selected_id:
         selected_id = customer_pool[0]["id"]
@@ -242,6 +423,11 @@ TEMPLATE = """
 {% for rule in fixed_reply_rules %}
 <a class="customer" href="#rule-{{ rule.id or loop.index }}"><div class="source-logo">AI</div><div class="customer-info"><div class="customer-name">{{ rule.title }}</div><div class="last-preview">{{ '启用' if rule.is_active else '停用' }} · {{ rule.category }}</div></div></a>
 {% else %}<div class="empty">还没有固定话术</div>{% endfor %}
+{% elif view == 'ops' %}
+<div class="middle-head"><div class="middle-title">AI客户运营</div><div class="middle-sub">排序、筛选、生成跟进草稿</div></div>
+<a class="customer" href="/?view=ops&mode=oldest&limit=50"><div class="source-logo">1</div><div class="customer-info"><div class="customer-name">最久未联系</div><div class="last-preview">从最长时间没聊天的客户开始</div></div></a>
+<a class="customer" href="/?view=ops&mode=capacitor&keywords=capacitor,cbb65,uf,mfd,电容&limit=80"><div class="source-logo">2</div><div class="customer-info"><div class="customer-name">问过电容</div><div class="last-preview">筛选问过 capacitor / CBB65 / uf 的客户</div></div></a>
+<a class="customer" href="/?view=ops&mode=relay&keywords=capacitor,cbb65,uf,mfd,电容&limit=80"><div class="source-logo">3</div><div class="customer-info"><div class="customer-name">推荐继电器</div><div class="last-preview">给电容客户生成跟进草稿</div></div></a>
 {% elif view == 'integrations' %}
 <div class="middle-head"><div class="middle-title">接口管理</div><div class="middle-sub">所有外部平台集中在这里</div></div>
 {% for card in integration_cards %}
@@ -284,6 +470,46 @@ TEMPLATE = """
 {% endfor %}
 <form class="rule-row" method="post" action="/admin/ai/fixed-replies"><div class="rule-title">新增固定话术</div><input name="title" placeholder="例：发货时间"><input name="category" placeholder="shipping"><textarea name="keywords" placeholder="ship, shipping, 发货"></textarea><textarea name="reply_text" placeholder="固定回复内容"></textarea><label><input type="checkbox" name="is_active" value="1" checked> 启用</label><button type="submit">新增</button></form>
 </div></section>
+{% elif view == 'ops' %}
+<header class="profile"><div class="profile-main"><div><h1>AI客户运营</h1><div class="profile-meta"><span class="pill tag">生成草稿</span><span class="pill">不自动发送</span><span class="pill">{{ ai_ops.total }} 条结果</span></div></div></div></header>
+<section class="workspace">
+<div class="panel">
+<h2>{{ ai_ops.title }}</h2>
+<div class="muted">{{ ai_ops.summary }}</div>
+<form class="reply" method="get" action="/">
+<input type="hidden" name="view" value="ops">
+<div class="field-list">
+<div class="field"><div class="label">动作</div><div class="value"><select name="mode" style="width:100%;border:1px solid #cfd7e2;border-radius:8px;padding:10px 12px;font:inherit"><option value="oldest" {% if ai_ops.mode == 'oldest' %}selected{% endif %}>最久未联系客户</option><option value="capacitor" {% if ai_ops.mode == 'capacitor' %}selected{% endif %}>筛选问过电容的客户</option><option value="relay" {% if ai_ops.mode == 'relay' %}selected{% endif %}>给电容客户生成推荐继电器草稿</option></select></div></div>
+<div class="field"><div class="label">关键词</div><div class="value"><input name="keywords" value="{{ ai_ops.keywords }}"></div></div>
+<div class="field"><div class="label">数量</div><div class="value"><input name="limit" value="{{ ai_ops.limit }}"></div></div>
+</div>
+<button type="submit">运行AI运营</button>
+</form>
+<div class="messages" style="max-height:none">
+{% for item in ai_ops.rows %}
+<div class="message" style="max-width:100%">
+<div class="customer-top"><div class="customer-name">{{ item.customer.display_name or '未命名客户' }}</div><div class="last-time">{{ item.customer.last_message_time_short }}</div></div>
+<div class="muted">{{ item.reason }} · {{ item.customer.source_label }}</div>
+{% if item.draft %}<textarea class="draft-box" readonly id="draft-{{ loop.index }}">{{ item.draft }}</textarea><button class="secondary-button" type="button" data-copy-target="draft-{{ loop.index }}">复制草稿</button>{% endif %}
+<a class="button secondary-button" href="/?view=customers&customer={{ item.customer.id }}">打开客户</a>
+</div>
+{% else %}<div class="muted">没有匹配到客户。可以调整关键词或扩大数量。</div>{% endfor %}
+</div>
+</div>
+<aside class="panel">
+<h2>AI语气训练</h2>
+<div class="muted">这里保存你的谈判口气。现在先用于批量草稿，后面再扩展成自动排序、自动打标签、自动提醒。</div>
+<form class="reply" method="post" action="/admin/ai/ops/settings">
+<textarea name="tone">{{ ai_ops.tone }}</textarea>
+<button type="submit">保存语气</button>
+</form>
+<div class="action-grid">
+<a class="button secondary-button" href="/?view=ops&mode=oldest&limit=100">最久未联系100人</a>
+<a class="button secondary-button" href="/?view=ops&mode=relay&keywords=capacitor,cbb65,uf,mfd,电容&limit=100">电容客户草稿100人</a>
+</div>
+<div class="muted">当前版本只生成草稿，不自动发给客户，避免误发。你确认话术成熟后，再做半自动发送队列。</div>
+</aside>
+</section>
 {% elif view == 'integrations' %}
 <header class="profile"><div class="profile-main"><div><h1>接口管理</h1><div class="profile-meta"><span class="pill tag">CRM内部页面</span><span class="pill">Messenger / WhatsApp / SMS / Shopify / 插件</span></div></div><div class="profile-actions"><a class="button secondary-button" href="/admin/channels">打开备用诊断页</a></div></div></header>
 <section class="workspace">
@@ -363,6 +589,41 @@ TEMPLATE = """
 """
 
 
+OPS_NAV_LINK = '<a class="nav-link {% if view == \'ops\' %}active{% endif %}" href="/?view=ops"><span>AI运营</span><span class="nav-count">work</span></a>'
+TEMPLATE = TEMPLATE.replace(
+    '<a class="nav-link {% if view == \'integrations\' %}active{% endif %}" href="/?view=integrations"',
+    OPS_NAV_LINK + '\n<a class="nav-link {% if view == \'integrations\' %}active{% endif %}" href="/?view=integrations"',
+)
+TEMPLATE = TEMPLATE.replace(
+    "</body>",
+    """
+<script>
+document.addEventListener('click', async function(event){
+  const button = event.target.closest('[data-copy-target]');
+  if(!button) return;
+  const target = document.getElementById(button.dataset.copyTarget);
+  if(!target) return;
+  target.select();
+  try {
+    await navigator.clipboard.writeText(target.value);
+    button.textContent = '已复制';
+  } catch (error) {
+    document.execCommand('copy');
+    button.textContent = '已复制';
+  }
+  setTimeout(function(){ button.textContent = '复制草稿'; }, 1200);
+});
+</script>
+</body>""",
+)
+
+
+@app.post("/admin/ai/ops/settings")
+def save_ai_ops_settings():
+    save_ai_ops_tone(app_live_new.request.form.get("tone", ""))
+    return app_live_new.redirect("/?view=ops")
+
+
 def live_dashboard():
     if not crm_module.database_ready():
         return "CRM is online, but database is not configured yet."
@@ -370,6 +631,7 @@ def live_dashboard():
     fixed_reply_rules = app_live_new.load_fixed_reply_rules(active_only=False)
     active_count = len(filtered_customers(customers, "customers"))
     closed_count = len(filtered_customers(customers, "closed"))
+    ai_ops = build_ai_ops_state(customers) if view == "ops" else {}
     return app_live_new.render_template_string(
         TEMPLATE,
         customers=customers,
@@ -377,8 +639,9 @@ def live_dashboard():
         selected_customer=selected,
         selected_messages=messages,
         selected_customer_id=selected_id,
-        mobile_chat_open=bool(app_live_new.request.args.get("customer")) or view in {"ai", "integrations"},
+        mobile_chat_open=bool(app_live_new.request.args.get("customer")) or view in {"ai", "ops", "integrations"},
         ai_draft=crm_module.load_ai_draft(selected, messages),
+        ai_ops=ai_ops,
         view=view,
         view_title=view_title(view),
         fixed_reply_rules=fixed_reply_rules,
