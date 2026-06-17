@@ -6,6 +6,7 @@
   const JOB_KEY = "coolfix_customer_sequential_capture_v2";
   let processing = false;
   let lastUrl = location.href;
+  let processingStartedAt = 0;
 
   function clean(text, limit = 500) {
     return String(text || "").replace(/\s+/g, " ").trim().slice(0, limit);
@@ -353,8 +354,19 @@
     }
 
     job.message = `Opening ${job.index + 1}/${job.queue.length}: ${next.display_name || "customer"}`;
+    job.openingIndex = job.index;
+    job.openingAttempts = (job.openingAttempts || 0) + 1;
     job.updatedAt = new Date().toISOString();
     await setJob(job);
+    if (job.openingAttempts > 3) {
+      job.failed += 1;
+      job.index += 1;
+      job.openingAttempts = 0;
+      job.message = `Skipped stuck customer: ${next.display_name || "customer"}`;
+      await setJob(job);
+      await goNext(job);
+      return;
+    }
     if (comparableUrl(location.href) === comparableUrl(next.url)) {
       setTimeout(processCurrentPageIfNeeded, 1000);
       return;
@@ -381,8 +393,10 @@
     }
 
     processing = true;
+    processingStartedAt = Date.now();
     job.message = `Capturing ${job.index + 1}/${job.queue.length}: ${current.display_name || "customer"}`;
     job.updatedAt = new Date().toISOString();
+    job.openingAttempts = 0;
     await setJob(job);
 
     try {
@@ -396,12 +410,14 @@
     } catch (error) {
       job.failed += 1;
       job.message = `Failed: ${error.message || error}`;
+    } finally {
+      processing = false;
+      processingStartedAt = 0;
     }
 
     job.index += 1;
     job.updatedAt = new Date().toISOString();
     await setJob(job);
-    processing = false;
     await sleep(800);
     await goNext(job);
   }
@@ -475,12 +491,31 @@
     return true;
   });
 
-  function watchJob() {
+  async function skipStuckCustomer(reason) {
+    const job = await getJob();
+    if (!job.running || !Array.isArray(job.queue) || job.index >= job.queue.length) return;
+    const current = job.queue[job.index];
+    job.failed += 1;
+    job.index += 1;
+    job.openingAttempts = 0;
+    job.updatedAt = new Date().toISOString();
+    job.message = `Skipped stuck customer: ${current?.display_name || "customer"} (${reason})`;
+    processing = false;
+    processingStartedAt = 0;
+    await setJob(job);
+    await goNext(job);
+  }
+
+  async function watchJob() {
+    if (processing && processingStartedAt && Date.now() - processingStartedAt > 25000) {
+      await skipStuckCustomer("timeout");
+      return;
+    }
     if (location.href !== lastUrl) {
       lastUrl = location.href;
       setTimeout(processCurrentPageIfNeeded, 1200);
     }
-    processCurrentPageIfNeeded();
+    await processCurrentPageIfNeeded();
   }
 
   processCurrentPageIfNeeded();
