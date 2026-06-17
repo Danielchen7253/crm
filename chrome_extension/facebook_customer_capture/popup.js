@@ -1,20 +1,8 @@
 const statusEl = document.getElementById("status");
-let statusTimer = null;
 
-function renderStatus(data) {
-  if (!data || !data.ok) {
-    statusEl.textContent = (data && data.error) || "当前页面没有响应，请刷新 Facebook 页面后再试。";
-    return;
-  }
-
-  const mode = data.importing ? "正在上传" : (data.running ? "正在采集" : "空闲");
-  statusEl.textContent = [
-    `状态：${mode}`,
-    `提示：${data.message || "准备就绪"}`,
-    `已抓取：${data.queued || 0}/${data.target || 50}`,
-    `已上传：${data.imported || 0}`,
-    `失败：${data.failed || 0}`
-  ].join("\n");
+function setStatus(text, isError = false) {
+  statusEl.textContent = text;
+  statusEl.className = isError ? "danger" : "";
 }
 
 async function activeTab() {
@@ -22,42 +10,28 @@ async function activeTab() {
   return tab;
 }
 
-async function send(action, extra = {}) {
+async function sendToPage(action) {
   const tab = await activeTab();
   if (!tab || !tab.id) {
-    renderStatus({ ok: false, error: "没有找到当前页面。" });
-    return null;
+    setStatus("没有找到当前页面。", true);
+    return;
   }
-
   try {
-    const response = await chrome.tabs.sendMessage(tab.id, { action, ...extra });
-    renderStatus(response);
-    return response;
+    const response = await chrome.tabs.sendMessage(tab.id, { action });
+    if (!response || !response.ok) {
+      setStatus((response && response.error) || "页面没有响应，刷新 Facebook 页面后再试。", true);
+      return;
+    }
+    if (action === "captureCurrent") {
+      setStatus(`已保存：${response.result.display_name || "当前客户"}`);
+    } else {
+      setStatus(`已扫描并提交 ${response.saved || 0} 个客户。`);
+    }
   } catch (error) {
-    renderStatus({ ok: false, error: "插件没有在当前页面生效。请刷新 Facebook / Messenger 页面后再点。" });
-    return null;
+    setStatus("插件还没有注入当前页面。请刷新 Facebook/Messenger 页面后再点。", true);
   }
 }
 
-function pollStatus() {
-  if (statusTimer) clearInterval(statusTimer);
-  statusTimer = setInterval(() => send("status"), 1200);
-}
-
-document.getElementById("start").addEventListener("click", async () => {
-  await send("startWatching", { target: 50 });
-  pollStatus();
-});
-
-document.getElementById("upload").addEventListener("click", async () => {
-  await send("uploadAndClear");
-  pollStatus();
-});
-
-document.getElementById("scan-now").addEventListener("click", async () => {
-  await send("scanNow");
-  pollStatus();
-});
-
-send("status");
-pollStatus();
+document.getElementById("save-current").addEventListener("click", () => sendToPage("captureCurrent"));
+document.getElementById("scan-visible").addEventListener("click", () => sendToPage("scanVisible"));
+document.getElementById("test-config").addEventListener("click", () => sendToPage("testConfig"));

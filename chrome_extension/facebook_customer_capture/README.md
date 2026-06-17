@@ -1,6 +1,6 @@
 # Coolfix CRM Customer Capture
 
-Local Chrome/Edge extension for one-click scanning and importing Facebook, Messenger, and Marketplace customers into the CRM.
+Local Chrome/Edge extension for saving visible Facebook, Messenger, and Marketplace customers into the CRM.
 
 ## Install locally
 
@@ -13,8 +13,7 @@ Local Chrome/Edge extension for one-click scanning and importing Facebook, Messe
 
 - Open Facebook, Messenger, or Marketplace.
 - Click the extension.
-- Open a Facebook Marketplace or Messenger customer list.
-- Click `扫描客户并导入 CRM`.
-- The extension scans loadable customers and imports them to CRM in batches.
+- Use `保存当前客户` on a customer conversation/profile page.
+- Use `扫描当前页面客户列表` on a visible inbox/list page.
 
 This extension does not store Facebook passwords, cookies, or send messages. It only sends visible customer information to the CRM capture endpoint.

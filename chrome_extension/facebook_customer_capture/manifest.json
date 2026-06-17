@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Coolfix CRM Customer Capture",
-  "version": "0.4.0",
-  "description": "滚动 Facebook、Messenger、Marketplace 客户列表时采集客户并导入 Coolfix CRM。",
+  "version": "0.1.0",
+  "description": "Save visible Facebook, Messenger, and Marketplace customers into Coolfix CRM.",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": [
     "https://crm-8t7y.onrender.com/*",
@@ -12,7 +12,7 @@
     "https://messenger.com/*"
   ],
   "action": {
-    "default_title": "Coolfix CRM 客户导入",
+    "default_title": "Save customer to CRM",
     "default_popup": "popup.html"
   },
   "content_scripts": [
