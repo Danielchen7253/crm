@@ -1,29 +1,37 @@
-const $ = (id) => document.getElementById(id);
+const statusEl = document.getElementById("status");
 
-function send(message) {
-  return chrome.runtime.sendMessage(message);
+function setStatus(text, isError = false) {
+  statusEl.textContent = text;
+  statusEl.className = isError ? "danger" : "";
 }
 
-function render(state) {
-  if (!state || !state.ok) {
-    $("postTitle").textContent = "CRM 未连接";
-    $("groupName").textContent = "";
-    $("status").textContent = state && state.error ? state.error : "Open CRM and log in first.";
+async function activeTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab;
+}
+
+async function sendToPage(action) {
+  const tab = await activeTab();
+  if (!tab || !tab.id) {
+    setStatus("没有找到当前页面。", true);
     return;
   }
-  $("postTitle").textContent = state.post ? state.post.title || "未命名文案" : "没有文案";
-  $("groupName").textContent = state.current_group ? state.current_group.name : "没有群组";
-  $("status").textContent = `队列：${state.groups.length} 个群组\n当前：${state.current_group ? state.current_group.url : "无"}`;
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, { action });
+    if (!response || !response.ok) {
+      setStatus((response && response.error) || "页面没有响应，刷新 Facebook 页面后再试。", true);
+      return;
+    }
+    if (action === "captureCurrent") {
+      setStatus(`已保存：${response.result.display_name || "当前客户"}`);
+    } else {
+      setStatus(`已扫描并提交 ${response.saved || 0} 个客户。`);
+    }
+  } catch (error) {
+    setStatus("插件还没有注入当前页面。请刷新 Facebook/Messenger 页面后再点。", true);
+  }
 }
 
-async function refresh() {
-  render(await send({ type: "getState" }));
-}
-
-$("start").addEventListener("click", async () => {
-  const state = await send({ type: "openCurrentGroup" });
-  render(state);
-});
-
-$("refresh").addEventListener("click", refresh);
-refresh();
+document.getElementById("save-current").addEventListener("click", () => sendToPage("captureCurrent"));
+document.getElementById("scan-visible").addEventListener("click", () => sendToPage("scanVisible"));
+document.getElementById("test-config").addEventListener("click", () => sendToPage("testConfig"));

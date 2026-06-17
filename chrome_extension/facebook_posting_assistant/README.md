@@ -1,24 +1,19 @@
-# Coolfix CRM Facebook Posting Assistant
+# Coolfix CRM Customer Capture
 
-Local Chrome extension for the CRM group posting workflow.
+Local Chrome/Edge extension for saving visible Facebook, Messenger, and Marketplace customers into the CRM.
 
 ## Install locally
 
-1. Open Chrome and go to `chrome://extensions`.
-2. Turn on `Developer mode`.
+1. Open `chrome://extensions` or `edge://extensions`.
+2. Turn on Developer mode.
 3. Click `Load unpacked`.
-4. Select this folder:
-   `C:\Users\joel7\Documents\Codex\2026-05-17\crm_repo\chrome_extension\facebook_posting_assistant`
-5. Open `https://crm-8t7y.onrender.com` and log in once.
-6. Open Facebook, log in, then click the extension icon.
+4. Select this folder: `chrome_extension/facebook_customer_capture`.
 
-## Workflow
+## Use
 
-1. Click `打开当前群组`.
-2. If you have not joined the group, click Join in Facebook.
-3. Click `填入贴文`.
-4. Click `上传图片/视频` and select the file from your computer.
-5. Click Facebook's Publish button yourself.
-6. Click `已发布，打开下一个`.
+- Open Facebook, Messenger, or Marketplace.
+- Click the extension.
+- Use `保存当前客户` on a customer conversation/profile page.
+- Use `扫描当前页面客户列表` on a visible inbox/list page.
 
-The extension does not auto-click Publish.
+This extension does not store Facebook passwords, cookies, or send messages. It only sends visible customer information to the CRM capture endpoint.
