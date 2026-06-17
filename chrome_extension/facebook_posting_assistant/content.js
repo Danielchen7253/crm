@@ -1,177 +1,216 @@
-(function () {
-  const config = window.COOLFIX_CRM_CAPTURE_CONFIG || {};
+let state = null;
 
-  function clean(text, limit = 500) {
-    return String(text || "").replace(/\s+/g, " ").trim().slice(0, limit);
-  }
+function send(message) {
+  return chrome.runtime.sendMessage(message);
+}
 
-  function visible(el) {
-    if (!el) return false;
-    const rect = el.getBoundingClientRect();
-    const style = window.getComputedStyle(el);
-    return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
-  }
+function setStatus(text) {
+  const el = document.querySelector("#coolfix-crm-assistant .cf-status");
+  if (el) el.textContent = text;
+}
 
-  function sourceFromUrl(url) {
-    const value = String(url || location.href).toLowerCase();
-    if (value.includes("/marketplace/")) return "marketplace";
-    if (value.includes("messenger.com") || value.includes("/messages/")) return "private_messenger";
-    return "facebook";
-  }
+function visible(el) {
+  if (!el) return false;
+  const rect = el.getBoundingClientRect();
+  const style = window.getComputedStyle(el);
+  return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+}
 
-  function pageTitle() {
-    const og = document.querySelector('meta[property="og:title"]')?.content;
-    return clean(og || document.title, 180)
-      .replace(/\s*\|\s*Facebook$/i, "")
-      .replace(/\s*-\s*Messenger$/i, "")
-      .replace(/\s*\(\d+\)\s*$/, "");
-  }
+function normalizeText(text) {
+  return (text || "").replace(/\s+/g, " ").trim().toLowerCase();
+}
 
-  function bestHeading() {
-    const headings = [...document.querySelectorAll("h1,h2,[role='heading']")]
-      .filter(visible)
-      .map((el) => clean(el.innerText || el.textContent, 180))
-      .filter((text) => text && !/facebook|messenger|marketplace/i.test(text));
-    return headings[0] || "";
-  }
-
-  function bestAvatar() {
-    const candidates = [...document.images]
-      .filter(visible)
-      .map((img) => {
-        const rect = img.getBoundingClientRect();
-        const src = img.currentSrc || img.src || "";
-        const score = Math.min(rect.width, rect.height) + (src.includes("fbcdn") || src.includes("fbsbx") ? 60 : 0);
-        return { src, score, width: rect.width, height: rect.height };
-      })
-      .filter((item) => item.src && item.width >= 32 && item.height >= 32 && !item.src.includes("emoji"))
-      .sort((a, b) => b.score - a.score);
-    return candidates[0]?.src || "";
-  }
-
-  function bestProfileUrl() {
-    const anchors = [...document.querySelectorAll("a[href]")]
-      .filter(visible)
-      .map((a) => a.href)
-      .filter((href) => {
-        const value = href.toLowerCase();
-        return value.includes("facebook.com/") &&
-          !value.includes("/groups/") &&
-          !value.includes("/marketplace/") &&
-          !value.includes("/messages/") &&
-          !value.includes("/notifications") &&
-          !value.includes("/settings") &&
-          !value.includes("/help");
-      });
-    return anchors[0] || "";
-  }
-
-  function latestVisibleMessage() {
-    const texts = [...document.querySelectorAll('[data-ad-preview="message"], [dir="auto"], div[role="row"], span')]
-      .filter(visible)
-      .map((el) => clean(el.innerText || el.textContent, 500))
-      .filter((text) => text.length >= 2 && text.length <= 500)
-      .filter((text) => !/^(like|reply|send|search|home|notifications|messenger)$/i.test(text));
-    return texts.slice(-8).join(" | ").slice(0, 1000);
-  }
-
-  function currentCustomer() {
-    const title = pageTitle();
-    const name = bestHeading() || title || "Facebook Customer";
-    const source = sourceFromUrl(location.href);
-    return {
-      source,
-      display_name: clean(name, 160),
-      profile_pic_url: bestAvatar(),
-      profile_url: bestProfileUrl(),
-      conversation_url: location.href,
-      thread_url: location.href,
-      marketplace_item_url: source === "marketplace" ? location.href : "",
-      page_url: location.href,
-      page_title: title,
-      latest_message: latestVisibleMessage(),
-      captured_at: new Date().toISOString()
-    };
-  }
-
-  function visibleListCustomers() {
-    const source = sourceFromUrl(location.href);
-    const rows = [...document.querySelectorAll("a[href]")]
-      .filter(visible)
-      .map((a) => {
-        const text = clean(a.innerText || a.textContent, 180);
-        const href = a.href;
-        const img = a.querySelector("img");
-        return {
-          source,
-          display_name: text.split("\n")[0] || text,
-          profile_pic_url: img ? (img.currentSrc || img.src || "") : "",
-          profile_url: href,
-          conversation_url: href,
-          thread_url: href,
-          page_url: location.href,
-          page_title: pageTitle(),
-          latest_message: text,
-          captured_at: new Date().toISOString()
-        };
-      })
-      .filter((item) => item.display_name && item.display_name.length >= 2)
-      .filter((item) => {
-        const href = String(item.profile_url || "").toLowerCase();
-        return href.includes("facebook.com") || href.includes("messenger.com");
-      });
-
-    const seen = new Set();
-    return rows.filter((item) => {
-      const key = `${item.profile_url}|${item.display_name}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    }).slice(0, 25);
-  }
-
-  async function submit(customers) {
-    if (!config.crmUrl || !config.captureToken || config.captureToken.includes("PUT_")) {
-      throw new Error("插件 config.js 没配置 CRM 地址或采集 token。");
-    }
-    const body = customers.length === 1 ? customers[0] : { customers };
-    const response = await fetch(`${config.crmUrl.replace(/\/$/, "")}/api/capture/facebook-customer`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CRM-Capture-Token": config.captureToken
-      },
-      body: JSON.stringify(body)
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.ok) {
-      throw new Error(data.error || "CRM 保存失败。");
-    }
-    return data;
-  }
-
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    (async () => {
-      if (message.action === "testConfig") {
-        sendResponse({ ok: true, result: { display_name: config.crmUrl ? "配置已加载" : "未配置" } });
-        return;
-      }
-      if (message.action === "captureCurrent") {
-        const customer = currentCustomer();
-        const data = await submit([customer]);
-        sendResponse({ ok: true, result: data.results?.[0] || customer });
-        return;
-      }
-      if (message.action === "scanVisible") {
-        const customers = visibleListCustomers();
-        if (!customers.length) {
-          sendResponse({ ok: false, error: "当前页面没有识别到可保存的客户链接。" });
-          return;
-        }
-        const data = await submit(customers);
-        sendResponse({ ok: true, saved: data.saved || 0, result: data });
-      }
-    })().catch((error) => sendResponse({ ok: false, error: error.message || String(error) }));
-    return true;
+function findByText(selector, keywords) {
+  return [...document.querySelectorAll(selector)].find((el) => {
+    if (!visible(el)) return false;
+    const text = normalizeText(el.innerText || el.textContent || el.getAttribute("aria-label") || "");
+    return keywords.some((keyword) => text.includes(keyword));
   });
-})();
+}
+
+function findClickableComposer() {
+  return findByText('div[role="button"], span[role="button"], button, div[aria-label], span', [
+    "write something",
+    "create public post",
+    "create post",
+    "what's on your mind",
+    "写点",
+    "创建帖子",
+    "发帖"
+  ]);
+}
+
+async function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForTextbox() {
+  for (let i = 0; i < 40; i += 1) {
+    const boxes = [...document.querySelectorAll('div[contenteditable="true"][role="textbox"], div[contenteditable="true"], textarea')];
+    const box = boxes.reverse().find((el) => visible(el) && !el.closest("#coolfix-crm-assistant"));
+    if (box) return box;
+    await sleep(250);
+  }
+  return null;
+}
+
+function selectContenteditable(el) {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+async function writeIntoTextbox(box, text) {
+  box.focus();
+  await sleep(120);
+  if (box.tagName === "TEXTAREA" || box.tagName === "INPUT") {
+    box.value = text;
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    box.dispatchEvent(new Event("change", { bubbles: true }));
+    return;
+  }
+  selectContenteditable(box);
+  let inserted = document.execCommand("insertText", false, text);
+  if (!inserted || normalizeText(box.innerText) !== normalizeText(text)) {
+    try {
+      await navigator.clipboard.writeText(text);
+      inserted = document.execCommand("paste", false, null);
+    } catch (error) {
+      inserted = false;
+    }
+  }
+  if (!inserted || !normalizeText(box.innerText).includes(normalizeText(text).slice(0, 40))) {
+    box.textContent = text;
+  }
+  box.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, inputType: "insertText", data: text }));
+  box.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
+  box.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: " " }));
+}
+
+async function fillPostText(text) {
+  if (!text) {
+    setStatus("没有贴文内容。");
+    return;
+  }
+  const opener = findClickableComposer();
+  if (opener) {
+    opener.click();
+    await sleep(900);
+  }
+  let box = await waitForTextbox();
+  if (!box) {
+    await navigator.clipboard.writeText(text);
+    setStatus("没找到 Facebook 发帖输入框，已先复制贴文。请手动点发帖输入框后 Ctrl+V。");
+    return;
+  }
+  await writeIntoTextbox(box, text);
+  await navigator.clipboard.writeText(text);
+  setStatus("已尝试填入贴文，同时已复制到剪贴板。如果 Facebook 没显示文字，直接在输入框 Ctrl+V。");
+}
+
+async function copyText(text) {
+  await navigator.clipboard.writeText(text || "");
+  setStatus("贴文已复制。");
+}
+
+function findExistingFileInput() {
+  const inputs = [...document.querySelectorAll('input[type="file"]')].reverse();
+  return inputs.find((input) => {
+    const accept = (input.getAttribute("accept") || "").toLowerCase();
+    return accept.includes("image") || accept.includes("video") || accept.includes("media") || !accept;
+  });
+}
+
+async function openMediaPicker() {
+  const mediaButton = findByText('div[role="button"], span[role="button"], button, div[aria-label]', [
+    "photo/video",
+    "photo",
+    "video",
+    "照片",
+    "图片",
+    "视频",
+    "相片"
+  ]);
+  if (mediaButton) {
+    mediaButton.click();
+    await sleep(800);
+  }
+  const input = findExistingFileInput();
+  if (input) {
+    input.click();
+    setStatus("已打开电脑文件选择窗口。选择图片或视频后，再手动发布。");
+    return;
+  }
+  setStatus("没有找到上传入口。请先手动点 Facebook 的“照片/视频”，然后再试一次。");
+}
+
+async function markPosted() {
+  if (!state || !state.current_group || !state.post) return;
+  const next = await send({ type: "markPosted", groupId: state.current_group.id, postId: state.post.id });
+  if (!next.ok) {
+    setStatus(next.error || "标记失败");
+    return;
+  }
+  state = next;
+  setStatus("已标记，正在打开下一个群组。");
+}
+
+function render() {
+  if (document.getElementById("coolfix-crm-assistant")) return;
+  const panel = document.createElement("div");
+  panel.id = "coolfix-crm-assistant";
+  panel.innerHTML = `
+    <h2>Coolfix 发帖助手</h2>
+    <div class="cf-muted" id="cf-group"></div>
+    <div class="cf-muted" id="cf-post"></div>
+    <div class="cf-preview" id="cf-text"></div>
+    <div id="cf-media"></div>
+    <button id="cf-fill">填入贴文</button>
+    <button id="cf-upload">上传图片/视频</button>
+    <button class="cf-secondary" id="cf-copy">复制贴文</button>
+    <button id="cf-mark">已发布，打开下一个</button>
+    <button class="cf-secondary" id="cf-refresh">刷新</button>
+    <div class="cf-status"></div>
+  `;
+  document.body.appendChild(panel);
+  panel.querySelector("#cf-fill").addEventListener("click", () => fillPostText(state?.post?.content || ""));
+  panel.querySelector("#cf-upload").addEventListener("click", openMediaPicker);
+  panel.querySelector("#cf-copy").addEventListener("click", () => copyText(state?.post?.content || ""));
+  panel.querySelector("#cf-mark").addEventListener("click", markPosted);
+  panel.querySelector("#cf-refresh").addEventListener("click", loadState);
+}
+
+function updatePanel() {
+  render();
+  if (!state || !state.ok) {
+    setStatus(state?.error || "CRM 未连接。先登录 CRM，再刷新。");
+    return;
+  }
+  document.getElementById("cf-group").textContent = state.current_group ? `当前群组：${state.current_group.name}` : "没有当前群组";
+  document.getElementById("cf-post").textContent = state.post ? `样板：${state.post.title}` : "没有发帖样板";
+  document.getElementById("cf-text").textContent = state.post?.content || "";
+  const media = document.getElementById("cf-media");
+  media.innerHTML = "";
+  if (state.post?.image_url) {
+    const img = document.createElement("img");
+    img.src = state.post.image_url;
+    media.appendChild(img);
+  }
+  if (state.post?.video_url) {
+    const video = document.createElement("video");
+    video.src = state.post.video_url;
+    video.controls = true;
+    video.muted = true;
+    media.appendChild(video);
+  }
+  setStatus("如果你还没加入这个群，先点 Facebook 的加入。加入后点“填入贴文”，再点“上传图片/视频”，最后你自己点发布。");
+}
+
+async function loadState() {
+  state = await send({ type: "getState" });
+  updatePanel();
+}
+
+loadState();

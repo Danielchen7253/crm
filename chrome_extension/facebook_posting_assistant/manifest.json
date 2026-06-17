@@ -1,29 +1,26 @@
 {
   "manifest_version": 3,
-  "name": "Coolfix CRM Customer Capture",
-  "version": "0.1.0",
-  "description": "Save visible Facebook, Messenger, and Marketplace customers into Coolfix CRM.",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "name": "Coolfix CRM Facebook Posting Assistant",
+  "version": "0.1.1",
+  "description": "Local helper for posting CRM promotion templates into Facebook groups.",
+  "permissions": ["activeTab", "tabs", "scripting", "storage", "clipboardWrite"],
   "host_permissions": [
     "https://crm-8t7y.onrender.com/*",
     "https://www.facebook.com/*",
-    "https://facebook.com/*",
-    "https://www.messenger.com/*",
-    "https://messenger.com/*"
+    "https://facebook.com/*"
   ],
   "action": {
-    "default_title": "Save customer to CRM",
+    "default_title": "Coolfix Posting Assistant",
     "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": [
-        "https://www.facebook.com/*",
-        "https://facebook.com/*",
-        "https://www.messenger.com/*",
-        "https://messenger.com/*"
-      ],
-      "js": ["config.js", "content.js"],
+      "matches": ["https://www.facebook.com/groups/*", "https://facebook.com/groups/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
       "run_at": "document_idle"
     }
   ]
