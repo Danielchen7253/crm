@@ -8,6 +8,7 @@
     "https://crm-8t7y.onrender.com/*",
     "https://www.facebook.com/*",
     "https://facebook.com/*",
+    "https://business.facebook.com/*",
     "https://www.messenger.com/*",
     "https://messenger.com/*"
   ],
@@ -20,6 +21,7 @@
       "matches": [
         "https://www.facebook.com/*",
         "https://facebook.com/*",
+        "https://business.facebook.com/*",
         "https://www.messenger.com/*",
         "https://messenger.com/*"
       ],

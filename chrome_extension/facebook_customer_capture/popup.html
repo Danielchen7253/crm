@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <style>
-    :root{font-family:Arial,"Microsoft YaHei",sans-serif;color:#17202a}
+    :root{font-family:Arial,sans-serif;color:#17202a}
     body{width:360px;margin:0;background:#f6f8fb;padding:14px}
     h1{font-size:17px;margin:0 0 10px}
     .card{background:#fff;border:1px solid #d8dee8;border-radius:8px;padding:14px;display:grid;gap:12px}
@@ -15,14 +15,14 @@
   </style>
 </head>
 <body>
-  <h1>Coolfix CRM 客户采集</h1>
+  <h1>Coolfix CRM Capture</h1>
   <div class="card">
-    <div class="muted">先打开客户列表页。点开始后，插件会把当前屏幕识别到的客户排队，然后一个一个打开客户页面，采集资料和已加载的聊天记录，上传成功后再处理下一个。</div>
-    <button id="start">开始逐个采集</button>
-    <button id="stop" class="danger">停止采集</button>
-    <button id="capture-current" class="secondary">只上传当前客户</button>
-    <a class="secondary" href="https://crm-8t7y.onrender.com/?view=customers" target="_blank">打开 CRM</a>
-    <div id="status">准备就绪。</div>
+    <div class="muted">Open a Facebook, Messenger, or Marketplace customer list. Click Start. The extension will open customers one by one, capture visible profile and loaded chat messages, then upload to CRM.</div>
+    <button id="start">Start one-by-one capture</button>
+    <button id="stop" class="danger">Stop capture</button>
+    <button id="capture-current" class="secondary">Upload current customer only</button>
+    <a class="secondary" href="https://crm-8t7y.onrender.com/?view=customers" target="_blank">Open CRM</a>
+    <div id="status">Ready.</div>
   </div>
   <script src="popup.js"></script>
 </body>

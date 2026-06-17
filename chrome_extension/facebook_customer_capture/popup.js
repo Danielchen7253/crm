@@ -3,16 +3,16 @@ let statusTimer = null;
 
 function renderStatus(data) {
   if (!data || !data.ok) {
-    statusEl.textContent = (data && data.error) || "当前页面没有响应，请刷新 Facebook 页面后再试。";
+    statusEl.textContent = (data && data.error) || "Page is not ready. Refresh Facebook and try again.";
     return;
   }
 
   statusEl.textContent = [
-    `状态：${data.running ? "逐个采集中" : "空闲"}`,
-    `提示：${data.message || "准备就绪"}`,
-    `队列：${data.index || 0}/${data.total || 0}`,
-    `已上传：${data.saved || 0}`,
-    `失败：${data.failed || 0}`
+    `Status: ${data.running ? "Running" : "Idle"}`,
+    `Message: ${data.message || "Ready"}`,
+    `Queue: ${data.index || 0}/${data.total || 0}`,
+    `Uploaded: ${data.saved || 0}`,
+    `Failed: ${data.failed || 0}`
   ].join("\n");
 }
 
@@ -21,20 +21,52 @@ async function activeTab() {
   return tab;
 }
 
+function supportedPage(tab) {
+  const url = String((tab && tab.url) || "");
+  return url.startsWith("https://www.facebook.com/")
+    || url.startsWith("https://facebook.com/")
+    || url.startsWith("https://business.facebook.com/")
+    || url.startsWith("https://www.messenger.com/")
+    || url.startsWith("https://messenger.com/");
+}
+
+async function injectCaptureScript(tab) {
+  if (!supportedPage(tab)) {
+    throw new Error("Open a Facebook, Messenger, or Marketplace customer page first.");
+  }
+  await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    files: ["config.js", "content.js"]
+  });
+}
+
+async function sendOnce(tab, action) {
+  return chrome.tabs.sendMessage(tab.id, { action });
+}
+
 async function send(action) {
   const tab = await activeTab();
   if (!tab || !tab.id) {
-    renderStatus({ ok: false, error: "没有找到当前页面。" });
+    renderStatus({ ok: false, error: "No active page found." });
     return null;
   }
 
   try {
-    const response = await chrome.tabs.sendMessage(tab.id, { action });
+    const response = await sendOnce(tab, action);
     renderStatus(response);
     return response;
-  } catch (error) {
-    renderStatus({ ok: false, error: "插件没有在当前页面生效。请刷新 Facebook / Messenger 页面后再点。" });
-    return null;
+  } catch (firstError) {
+    try {
+      renderStatus({ ok: true, message: "Injecting capture script...", running: false });
+      await injectCaptureScript(tab);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const response = await sendOnce(tab, action);
+      renderStatus(response);
+      return response;
+    } catch (secondError) {
+      renderStatus({ ok: false, error: secondError.message || firstError.message || "Capture script failed." });
+      return null;
+    }
   }
 }
 

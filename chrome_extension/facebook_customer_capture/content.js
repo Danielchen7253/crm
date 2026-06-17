@@ -1,4 +1,9 @@
 (function () {
+  if (window.__COOLFIX_CRM_CUSTOMER_CAPTURE_LOADED__) {
+    return;
+  }
+  window.__COOLFIX_CRM_CUSTOMER_CAPTURE_LOADED__ = true;
+
   const config = window.COOLFIX_CRM_CAPTURE_CONFIG || {};
   const JOB_KEY = "coolfix_customer_sequential_capture_v1";
 
