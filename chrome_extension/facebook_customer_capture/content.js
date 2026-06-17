@@ -216,13 +216,32 @@
       imported: state.imported,
       failed: state.failed,
       duplicateInPage: state.duplicateInPage,
-      remaining,
-      scanRounds: state.scanRounds,
-      stagnantRounds: state.stagnantRounds,
-      elapsed,
-      etaSeconds,
-      message: state.message
+    remaining,
+    scanRounds: state.scanRounds,
+    stagnantRounds: state.stagnantRounds,
+    elapsed,
+    etaSeconds,
+      message: state.message,
+      messageZh: translateStatus(state.message)
     };
+  }
+
+  function translateStatus(message) {
+    const text = String(message || "");
+    if (text.includes("Ready")) return "准备就绪";
+    if (text.includes("Queue loaded")) return "已读取上次扫描队列";
+    if (text.includes("Scanning")) return "正在扫描客户";
+    if (text.includes("Scan stopped")) return "扫描已停止";
+    if (text.includes("Scan finished")) return `扫描完成，共 ${state.queue.length} 个客户`;
+    if (text.includes("Importing")) return "正在导入 CRM";
+    if (text.includes("Import paused")) return "导入已暂停";
+    if (text.includes("Import stopped")) return "导入已停止";
+    if (text.includes("Import finished")) return "导入完成";
+    if (text.includes("Queue cleared")) return "队列已清空";
+    if (text.includes("Batch failed")) return "有一批导入失败，插件会继续处理后面的客户";
+    if (text.includes("Imported")) return `正在导入 CRM：${state.imported}/${state.queue.length}`;
+    if (text.includes("Round")) return `正在扫描：已发现 ${state.queue.length} 个客户`;
+    return text || "准备就绪";
   }
 
   async function saveQueue() {
@@ -373,6 +392,16 @@
       }
       if (message.action === "scanAll") {
         scanAll(message.options || {});
+        sendResponse(progress());
+        return;
+      }
+      if (message.action === "scanAndImport") {
+        (async () => {
+          await scanAll(message.options || {});
+          if (!state.stopRequested && state.queue.length) {
+            await importQueue(message.options || {});
+          }
+        })();
         sendResponse(progress());
         return;
       }

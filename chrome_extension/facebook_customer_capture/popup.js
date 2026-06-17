@@ -1,44 +1,28 @@
 const statusEl = document.getElementById("status");
 let statusTimer = null;
 
-function value(id) {
-  return Number(document.getElementById(id).value || 0);
-}
-
-function options() {
-  return {
-    maxCustomers: value("maxCustomers") || 3000,
-    scanDelayMs: value("scanDelayMs") || 1400,
-    batchSize: value("batchSize") || 25,
-    importDelayMs: value("importDelayMs") || 3000
-  };
-}
-
 function fmtTime(seconds) {
   if (seconds === null || seconds === undefined) return "-";
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
-  return minutes ? `${minutes}m ${rest}s` : `${rest}s`;
+  return minutes ? `${minutes}分${rest}秒` : `${rest}秒`;
 }
 
 function renderStatus(data) {
   if (!data || !data.ok) {
-    statusEl.textContent = (data && data.error) || "No page response. Refresh Facebook/Messenger and try again.";
+    statusEl.textContent = (data && data.error) || "当前页面没有响应，请刷新 Facebook 页面后再试。";
     statusEl.className = "danger";
     return;
   }
   statusEl.className = "";
+  const importingText = data.importing ? "正在导入" : (data.scanning ? "正在扫描" : "空闲");
   statusEl.textContent = [
-    `Status: ${data.message || "Ready"}`,
-    `Queue: ${data.queued || 0}`,
-    `Imported: ${data.imported || 0}`,
-    `Failed: ${data.failed || 0}`,
-    `Remaining: ${data.remaining || 0}`,
-    `Scan rounds: ${data.scanRounds || 0}`,
-    `No-new rounds: ${data.stagnantRounds || 0}`,
-    `Duplicate seen: ${data.duplicateInPage || 0}`,
-    `Scanning: ${data.scanning ? "yes" : "no"} | Importing: ${data.importing ? "yes" : "no"} | Paused: ${data.paused ? "yes" : "no"}`,
-    `Elapsed: ${fmtTime(data.elapsed || 0)} | ETA: ${fmtTime(data.etaSeconds)}`
+    `状态：${data.messageZh || data.message || importingText}`,
+    `已扫描：${data.queued || 0} 个客户`,
+    `已导入：${data.imported || 0} 个客户`,
+    `失败：${data.failed || 0} 个`,
+    `剩余：${data.remaining || 0} 个`,
+    `预计剩余：${fmtTime(data.etaSeconds)}`
   ].join("\n");
 }
 
@@ -50,7 +34,7 @@ async function activeTab() {
 async function send(action, extra = {}) {
   const tab = await activeTab();
   if (!tab || !tab.id) {
-    renderStatus({ ok: false, error: "No active tab found." });
+    renderStatus({ ok: false, error: "没有找到当前页面。" });
     return null;
   }
   try {
@@ -58,7 +42,7 @@ async function send(action, extra = {}) {
     renderStatus(response);
     return response;
   } catch (error) {
-    renderStatus({ ok: false, error: "Extension is not active on this page. Refresh Facebook/Messenger and try again." });
+    renderStatus({ ok: false, error: "插件没有在当前页面生效。请刷新 Facebook / Messenger 页面后再点。" });
     return null;
   }
 }
@@ -68,21 +52,19 @@ function pollStatus() {
   statusTimer = setInterval(() => send("status"), 1200);
 }
 
-document.getElementById("scan-all").addEventListener("click", async () => {
-  await send("scanAll", { options: options() });
+document.getElementById("scan-import").addEventListener("click", async () => {
+  await send("scanAndImport", {
+    options: {
+      maxCustomers: 3000,
+      scanDelayMs: 1400,
+      batchSize: 25,
+      importDelayMs: 3000
+    }
+  });
   pollStatus();
 });
-document.getElementById("import-queue").addEventListener("click", async () => {
-  await send("importQueue", { options: options() });
-  pollStatus();
-});
+
 document.getElementById("stop").addEventListener("click", () => send("stop"));
-document.getElementById("pause").addEventListener("click", () => send("pauseImport"));
-document.getElementById("resume").addEventListener("click", () => send("resumeImport"));
-document.getElementById("scan-visible").addEventListener("click", () => send("scanVisible"));
-document.getElementById("save-current").addEventListener("click", () => send("captureCurrent"));
-document.getElementById("clear").addEventListener("click", () => send("clearQueue"));
-document.getElementById("test-config").addEventListener("click", () => send("testConfig"));
 
 send("status");
 pollStatus();

@@ -3,47 +3,25 @@
 <head>
   <meta charset="utf-8">
   <style>
-    :root{font-family:Arial,sans-serif;color:#17202a}
-    body{width:390px;margin:0;background:#f6f8fb;padding:14px}
-    h1{font-size:16px;margin:0 0 10px}
-    .card{background:#fff;border:1px solid #d8dee8;border-radius:8px;padding:12px;display:grid;gap:10px}
-    .muted{color:#6a7682;font-size:12px;line-height:1.45}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-    .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
-    label{display:grid;gap:4px;font-size:12px;color:#3e4b57;font-weight:700}
-    input{border:1px solid #cfd7e2;border-radius:8px;padding:8px;font:inherit}
-    button,a{border:0;border-radius:8px;background:#1f8a70;color:#fff;text-decoration:none;font-weight:800;padding:10px 12px;cursor:pointer;text-align:center}
+    :root{font-family:Arial,"Microsoft YaHei",sans-serif;color:#17202a}
+    body{width:360px;margin:0;background:#f6f8fb;padding:14px}
+    h1{font-size:17px;margin:0 0 10px}
+    .card{background:#fff;border:1px solid #d8dee8;border-radius:8px;padding:14px;display:grid;gap:12px}
+    .muted{color:#6a7682;font-size:13px;line-height:1.5}
+    button,a{border:0;border-radius:8px;background:#1f8a70;color:#fff;text-decoration:none;font-weight:800;padding:12px 14px;cursor:pointer;text-align:center;font-size:14px}
     .secondary{background:#e8edf3;color:#17202a}
     .danger{background:#fff2f0;color:#a8071a;border:1px solid #ffccc7}
-    .warn{background:#fff7e6;color:#8a4b00;border:1px solid #ffd591}
-    #status{font-size:12px;color:#3e4b57;line-height:1.45;white-space:pre-wrap;border:1px solid #edf0f4;border-radius:8px;padding:9px;background:#fbfcfd}
+    #status{font-size:13px;color:#3e4b57;line-height:1.5;white-space:pre-wrap;border:1px solid #edf0f4;border-radius:8px;padding:10px;background:#fbfcfd;min-height:96px}
   </style>
 </head>
 <body>
-  <h1>Coolfix CRM Customer Capture</h1>
+  <h1>Coolfix CRM 客户导入</h1>
   <div class="card">
-    <div class="muted">Open Messenger or Marketplace customer list, then scan all visible/loadable customers first. Import runs from the saved queue.</div>
-    <div class="grid3">
-      <label>Max scan<input id="maxCustomers" type="number" min="1" max="20000" value="3000"></label>
-      <label>Scan wait ms<input id="scanDelayMs" type="number" min="300" max="10000" value="1400"></label>
-      <label>Batch size<input id="batchSize" type="number" min="1" max="50" value="25"></label>
-    </div>
-    <label>Import interval ms<input id="importDelayMs" type="number" min="500" max="60000" value="3000"></label>
-    <div class="grid">
-      <button id="scan-all">Scan all customers</button>
-      <button id="stop" class="warn">Stop</button>
-      <button id="import-queue">Import queue</button>
-      <button id="pause" class="secondary">Pause import</button>
-      <button id="resume" class="secondary">Resume import</button>
-      <button id="scan-visible" class="secondary">Scan current screen</button>
-      <button id="save-current" class="secondary">Save current customer</button>
-      <button id="clear" class="danger">Clear queue</button>
-    </div>
-    <div class="grid">
-      <a class="secondary" href="https://crm-8t7y.onrender.com/?view=customers" target="_blank">Open CRM</a>
-      <button id="test-config" class="secondary">Check config</button>
-    </div>
-    <div id="status">Loading...</div>
+    <div class="muted">打开 Facebook Marketplace 或 Messenger 客户列表后，点击下面按钮。插件会自动扫描页面能加载出来的客户，并导入 CRM。</div>
+    <button id="scan-import">扫描客户并导入 CRM</button>
+    <button id="stop" class="danger">停止</button>
+    <a class="secondary" href="https://crm-8t7y.onrender.com/?view=customers" target="_blank">打开 CRM</a>
+    <div id="status">准备就绪。</div>
   </div>
   <script src="popup.js"></script>
 </body>
