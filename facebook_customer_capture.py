@@ -85,6 +85,43 @@ def merge_metadata(existing, item):
     return metadata
 
 
+def normalized_messages(item, latest_message, captured_at):
+    raw_messages = item.get("messages")
+    messages = raw_messages if isinstance(raw_messages, list) else []
+    normalized = []
+
+    for index, message in enumerate(messages[:200]):
+        if not isinstance(message, dict):
+            continue
+        text = clean_text(message.get("text") or message.get("body"), 4000)
+        if not text:
+            continue
+        normalized.append(
+            {
+                "text": text,
+                "direction": clean_text(message.get("direction"), 40) or "inbound",
+                "message_type": clean_text(message.get("message_type"), 40) or "text",
+                "sent_at": clean_text(message.get("sent_at"), 80) or captured_at,
+                "index": index,
+                "raw": message,
+            }
+        )
+
+    if latest_message and not any(message["text"] == latest_message for message in normalized):
+        normalized.append(
+            {
+                "text": latest_message,
+                "direction": "inbound",
+                "message_type": "text",
+                "sent_at": captured_at,
+                "index": len(normalized),
+                "raw": {"text": latest_message},
+            }
+        )
+
+    return normalized
+
+
 def upsert_customer(item):
     source = clean_text(item.get("source"), 80) or "facebook"
     if source not in ALLOWED_SOURCES:
@@ -148,9 +185,9 @@ def upsert_customer(item):
         )
         created = True
 
-    message_created = False
-    if latest_message:
-        message_id = f"capture_{stable_hash(source, external_id, latest_message)[:40]}"
+    messages_created = 0
+    for message in normalized_messages(item, latest_message, captured_at):
+        message_id = f"capture_{stable_hash(source, external_id, message['text'], message['sent_at'], message['index'])[:40]}"
         try:
             crm_module.sb_post(
                 "messages",
@@ -158,21 +195,22 @@ def upsert_customer(item):
                     "customer_id": customer_id,
                     "provider": source,
                     "provider_message_id": message_id,
-                    "direction": "inbound",
-                    "message_type": "text",
-                    "text": latest_message,
-                    "raw_event": raw_profile,
-                    "sent_at": captured_at,
+                    "direction": message["direction"],
+                    "message_type": message["message_type"],
+                    "text": message["text"],
+                    "raw_event": {**raw_profile, "message": message["raw"]},
+                    "sent_at": message["sent_at"],
                 },
             )
-            message_created = True
+            messages_created += 1
         except Exception:
-            message_created = False
+            continue
 
     return {
         "customer_id": customer_id,
         "created": created,
-        "message_created": message_created,
+        "message_created": messages_created > 0,
+        "messages_created": messages_created,
         "display_name": display_name,
         "source": source,
     }

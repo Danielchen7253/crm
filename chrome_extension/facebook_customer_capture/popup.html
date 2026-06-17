@@ -11,15 +11,16 @@
     button,a{border:0;border-radius:8px;background:#1f8a70;color:#fff;text-decoration:none;font-weight:800;padding:12px 14px;cursor:pointer;text-align:center;font-size:14px}
     .secondary{background:#e8edf3;color:#17202a}
     .danger{background:#fff2f0;color:#a8071a;border:1px solid #ffccc7}
-    #status{font-size:13px;color:#3e4b57;line-height:1.5;white-space:pre-wrap;border:1px solid #edf0f4;border-radius:8px;padding:10px;background:#fbfcfd;min-height:96px}
+    #status{font-size:13px;color:#3e4b57;line-height:1.55;white-space:pre-wrap;border:1px solid #edf0f4;border-radius:8px;padding:10px;background:#fbfcfd;min-height:104px}
   </style>
 </head>
 <body>
   <h1>Coolfix CRM 客户导入</h1>
   <div class="card">
-    <div class="muted">打开 Facebook Marketplace 或 Messenger 客户列表后，点击下面按钮。插件会自动扫描页面能加载出来的客户，并导入 CRM。</div>
-    <button id="scan-import">扫描客户并导入 CRM</button>
-    <button id="stop" class="danger">停止</button>
+    <div class="muted">打开 Facebook / Messenger / Marketplace 客户列表，先点“开始采集”。然后你自己滚动页面，插件会把出现的客户和当前已加载的聊天记录抓下来。默认抓够 50 个自动上传 CRM 并清空本地队列。</div>
+    <button id="start">开始采集 50 个客户</button>
+    <button id="upload" class="secondary">停止并上传 CRM</button>
+    <button id="scan-now" class="secondary">立即抓当前屏幕</button>
     <a class="secondary" href="https://crm-8t7y.onrender.com/?view=customers" target="_blank">打开 CRM</a>
     <div id="status">准备就绪。</div>
   </div>
