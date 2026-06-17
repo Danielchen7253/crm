@@ -8,13 +8,11 @@ function renderStatus(data) {
   }
 
   statusEl.textContent = [
-    `状态：${data.running ? "挂机采集中" : "空闲"}`,
+    `状态：${data.running ? "逐个采集中" : "空闲"}`,
     `提示：${data.message || "准备就绪"}`,
-    `已发现：${data.scanned || 0}`,
-    `待上传：${data.queued || 0}`,
-    `已上传：${data.uploaded || 0}`,
-    `失败：${data.failed || 0}`,
-    `扫描轮次：${data.rounds || 0}`
+    `队列：${data.index || 0}/${data.total || 0}`,
+    `已上传：${data.saved || 0}`,
+    `失败：${data.failed || 0}`
   ].join("\n");
 }
 
@@ -46,17 +44,17 @@ function pollStatus() {
 }
 
 document.getElementById("start").addEventListener("click", async () => {
-  await send("startAutoCapture");
+  await send("startSequentialCapture");
   pollStatus();
 });
 
 document.getElementById("stop").addEventListener("click", async () => {
-  await send("stopAutoCapture");
+  await send("stopSequentialCapture");
   pollStatus();
 });
 
-document.getElementById("scan-visible").addEventListener("click", async () => {
-  await send("scanVisible");
+document.getElementById("capture-current").addEventListener("click", async () => {
+  await send("captureCurrentOnly");
   pollStatus();
 });
 

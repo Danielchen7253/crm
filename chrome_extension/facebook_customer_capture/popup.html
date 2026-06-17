@@ -17,10 +17,10 @@
 <body>
   <h1>Coolfix CRM 客户采集</h1>
   <div class="card">
-    <div class="muted">打开 Facebook / Messenger / Marketplace 客户列表后，点“开始挂机采集”。插件会慢慢滚动页面，先抓客户资料，每 20 个自动上传 CRM。</div>
-    <button id="start">开始挂机采集客户</button>
-    <button id="stop" class="danger">停止并上传剩余客户</button>
-    <button id="scan-visible" class="secondary">只抓当前屏幕一次</button>
+    <div class="muted">先打开客户列表页。点开始后，插件会把当前屏幕识别到的客户排队，然后一个一个打开客户页面，采集资料和已加载的聊天记录，上传成功后再处理下一个。</div>
+    <button id="start">开始逐个采集</button>
+    <button id="stop" class="danger">停止采集</button>
+    <button id="capture-current" class="secondary">只上传当前客户</button>
     <a class="secondary" href="https://crm-8t7y.onrender.com/?view=customers" target="_blank">打开 CRM</a>
     <div id="status">准备就绪。</div>
   </div>
