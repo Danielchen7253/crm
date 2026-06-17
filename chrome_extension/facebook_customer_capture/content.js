@@ -1,11 +1,9 @@
 (function () {
-  if (window.__COOLFIX_CRM_CUSTOMER_CAPTURE_LOADED__) {
-    return;
-  }
+  if (window.__COOLFIX_CRM_CUSTOMER_CAPTURE_LOADED__) return;
   window.__COOLFIX_CRM_CUSTOMER_CAPTURE_LOADED__ = true;
 
   const config = window.COOLFIX_CRM_CAPTURE_CONFIG || {};
-  const JOB_KEY = "coolfix_customer_sequential_capture_v1";
+  const JOB_KEY = "coolfix_customer_sequential_capture_v2";
   let processing = false;
   let lastUrl = location.href;
 
@@ -77,18 +75,12 @@
     if (value.includes("/groups/") || value.includes("/settings") || value.includes("/help")) return false;
     if (value.includes("/notifications") || value.includes("/watch") || value.includes("/reel/")) return false;
 
-    if (mode === "messenger") {
-      return isMessengerThreadLink(value);
-    }
-
+    if (mode === "messenger") return isMessengerThreadLink(value);
     if (mode === "marketplace") {
       if (isMessengerThreadLink(value)) return true;
       if (value.includes("/messages/")) return true;
-      if (value.includes("/marketplace/item/")) return false;
-      if (value.includes("/marketplace/you/")) return false;
       return false;
     }
-
     return isMessengerThreadLink(value) || value.includes("/messages/");
   }
 
@@ -130,21 +122,53 @@
     };
   }
 
-  function collectVisibleCustomerLinks() {
-    const seen = new Set();
+  function customerItemKey(item) {
+    return `${item.source || ""}|${comparableUrl(item.url || item.profile_url || item.conversation_url || "")}`;
+  }
+
+  function collectVisibleCustomerLinks(excludeKeys = new Set()) {
+    const local = new Set();
     const links = [];
     const mode = currentMode();
     for (const anchor of [...document.querySelectorAll("a[href]")].filter(visible)) {
       const item = linkFromAnchor(anchor);
       if (!item) continue;
       if (mode === "messenger" && !isMessengerThreadLink(item.url)) continue;
-      const key = `${item.source}|${item.url}|${item.display_name.toLowerCase()}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
+      const key = customerItemKey(item);
+      if (excludeKeys.has(key) || local.has(key)) continue;
+      local.add(key);
       links.push(item);
-      if (links.length >= 100) break;
     }
     return links;
+  }
+
+  function scrollCustomerList() {
+    const candidates = [...document.querySelectorAll("div, main, section")]
+      .filter(visible)
+      .map((el) => {
+        const anchors = [...el.querySelectorAll("a[href]")].filter((anchor) => {
+          const href = absoluteUrl(anchor.getAttribute("href") || anchor.href || "");
+          return likelyCustomerLink(href);
+        });
+        const rect = el.getBoundingClientRect();
+        return {
+          el,
+          anchorCount: anchors.length,
+          overflow: el.scrollHeight - el.clientHeight,
+          area: rect.width * rect.height
+        };
+      })
+      .filter((item) => item.anchorCount > 2 && item.overflow > 80)
+      .sort((a, b) => (b.anchorCount * 5000 + b.overflow + b.area / 1000) - (a.anchorCount * 5000 + a.overflow + a.area / 1000));
+
+    const target = candidates[0]?.el;
+    if (target) {
+      target.scrollTop += Math.max(420, Math.floor(target.clientHeight * 0.75));
+      target.dispatchEvent(new Event("scroll", { bubbles: true }));
+      return true;
+    }
+    window.scrollBy(0, Math.max(500, Math.floor(window.innerHeight * 0.7)));
+    return false;
   }
 
   function bestHeading() {
@@ -164,7 +188,7 @@
         const overflow = el.scrollHeight - el.clientHeight;
         const area = rect.width * rect.height;
         const text = clean(el.innerText || "", 2200);
-        const hints = (text.match(/reply|sent|message|active|today|yesterday|you:|上午|下午|回复|发送/gi) || []).length;
+        const hints = (text.match(/reply|sent|message|active|today|yesterday|you:/gi) || []).length;
         return { el, overflow, area, hints };
       })
       .filter((item) => item.overflow > 80 && item.area > viewportArea * 0.05)
@@ -176,13 +200,13 @@
     const target = messageContainer();
     if (!target) {
       window.scrollTo(0, 0);
-      await sleep(1000);
+      await sleep(800);
       return;
     }
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < 4; i += 1) {
       target.scrollTop = 0;
       target.dispatchEvent(new Event("scroll", { bubbles: true }));
-      await sleep(1200);
+      await sleep(900);
     }
   }
 
@@ -211,9 +235,9 @@
   }
 
   async function captureCurrentCustomer(seed = {}) {
-    await sleep(2500);
+    await sleep(1600);
     await loadMoreMessages();
-    await sleep(800);
+    await sleep(500);
 
     const messages = extractMessages();
     const source = sourceFromUrl(location.href);
@@ -236,7 +260,7 @@
 
   async function submit(customer) {
     if (!config.crmUrl || !config.captureToken || config.captureToken.includes("PUT_")) {
-      throw new Error("插件缺少 CRM 地址或导入口令，请检查 config.js。");
+      throw new Error("Extension config.js is missing CRM URL or capture token.");
     }
     const response = await fetch(`${config.crmUrl.replace(/\/$/, "")}/api/capture/facebook-customer`, {
       method: "POST",
@@ -248,7 +272,7 @@
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.ok) {
-      throw new Error(data.error || "CRM 保存失败。");
+      throw new Error(data.error || "CRM save failed.");
     }
     return data;
   }
@@ -261,7 +285,10 @@
       index: 0,
       saved: 0,
       failed: 0,
-      message: "准备就绪"
+      skipped: 0,
+      stagnantRounds: 0,
+      processedKeys: [],
+      message: "Ready"
     };
   }
 
@@ -269,19 +296,67 @@
     await chrome.storage.local.set({ [JOB_KEY]: job });
   }
 
+  function jobExcludeSet(job) {
+    const exclude = new Set(Array.isArray(job.processedKeys) ? job.processedKeys : []);
+    for (const item of job.queue || []) exclude.add(customerItemKey(item));
+    return exclude;
+  }
+
+  async function refillQueue(job) {
+    const more = collectVisibleCustomerLinks(jobExcludeSet(job));
+    if (more.length) {
+      job.queue.push(...more);
+      job.stagnantRounds = 0;
+      job.updatedAt = new Date().toISOString();
+      job.message = `Added ${more.length} more customers. Queue ${job.index}/${job.queue.length}.`;
+      await setJob(job);
+      await sleep(400);
+      await goNext(job);
+      return true;
+    }
+
+    job.stagnantRounds = (job.stagnantRounds || 0) + 1;
+    job.updatedAt = new Date().toISOString();
+    job.message = `No new customers. Scrolling list ${job.stagnantRounds}/10.`;
+    await setJob(job);
+
+    if (job.listUrl && comparableUrl(location.href) !== comparableUrl(job.listUrl) && job.stagnantRounds <= 2) {
+      location.href = job.listUrl;
+      return true;
+    }
+
+    scrollCustomerList();
+    setTimeout(processCurrentPageIfNeeded, 2000);
+    return job.stagnantRounds < 10;
+  }
+
   async function goNext(job) {
     if (!job.running) return;
     if (job.index >= job.queue.length) {
+      const refilled = await refillQueue(job);
+      if (refilled) return;
       job.running = false;
-      job.message = `完成：已上传 ${job.saved} 个，失败 ${job.failed} 个`;
+      job.message = `Finished. Uploaded ${job.saved}, failed ${job.failed}, skipped ${job.skipped || 0}.`;
       await setJob(job);
       return;
     }
+
     const next = job.queue[job.index];
-    job.message = `打开第 ${job.index + 1}/${job.queue.length} 个客户`;
+    const key = customerItemKey(next);
+    job.processedKeys = Array.isArray(job.processedKeys) ? job.processedKeys : [];
+    if (job.processedKeys.includes(key)) {
+      job.skipped = (job.skipped || 0) + 1;
+      job.index += 1;
+      await setJob(job);
+      await goNext(job);
+      return;
+    }
+
+    job.message = `Opening ${job.index + 1}/${job.queue.length}: ${next.display_name || "customer"}`;
+    job.updatedAt = new Date().toISOString();
     await setJob(job);
     if (comparableUrl(location.href) === comparableUrl(next.url)) {
-      setTimeout(processCurrentPageIfNeeded, 1200);
+      setTimeout(processCurrentPageIfNeeded, 1000);
       return;
     }
     location.href = next.url;
@@ -290,22 +365,23 @@
   async function processCurrentPageIfNeeded() {
     if (processing) return;
     const job = await getJob();
-    if (!job.running || !Array.isArray(job.queue) || job.index >= job.queue.length) return;
+    if (!job.running || !Array.isArray(job.queue)) return;
+    if (job.index >= job.queue.length) {
+      await goNext(job);
+      return;
+    }
 
     const current = job.queue[job.index];
     if (!current) return;
 
     if (comparableUrl(location.href) !== comparableUrl(current.url)) {
       const ageMs = Date.now() - Date.parse(job.updatedAt || job.startedAt || new Date().toISOString());
-      if (ageMs > 8000) {
-        await goNext(job);
-      }
+      if (ageMs > 7000) await goNext(job);
       return;
     }
 
     processing = true;
-
-    job.message = `采集第 ${job.index + 1}/${job.queue.length} 个客户资料和聊天记录`;
+    job.message = `Capturing ${job.index + 1}/${job.queue.length}: ${current.display_name || "customer"}`;
     job.updatedAt = new Date().toISOString();
     await setJob(job);
 
@@ -313,24 +389,27 @@
       const customer = await captureCurrentCustomer(current);
       const result = await submit(customer);
       job.saved += Number(result.saved || 1);
-      job.message = `已上传：${customer.display_name}`;
+      job.processedKeys = Array.isArray(job.processedKeys) ? job.processedKeys : [];
+      const key = customerItemKey(current);
+      if (!job.processedKeys.includes(key)) job.processedKeys.push(key);
+      job.message = `Uploaded: ${customer.display_name}`;
     } catch (error) {
       job.failed += 1;
-      job.message = `失败：${error.message || error}`;
+      job.message = `Failed: ${error.message || error}`;
     }
 
     job.index += 1;
     job.updatedAt = new Date().toISOString();
     await setJob(job);
     processing = false;
-    await sleep(1500);
+    await sleep(800);
     await goNext(job);
   }
 
   async function startSequentialCapture() {
     const queue = collectVisibleCustomerLinks();
     if (!queue.length) {
-      return { ok: false, error: "当前屏幕没有识别到客户链接。请先打开客户列表页。" };
+      return { ok: false, error: "No customer chat links found on this screen. Open the customer list first." };
     }
     const job = {
       running: true,
@@ -338,12 +417,16 @@
       index: 0,
       saved: 0,
       failed: 0,
+      skipped: 0,
+      stagnantRounds: 0,
+      listUrl: location.href,
+      processedKeys: [],
       startedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      message: `已建立 ${queue.length} 个客户队列，准备逐个采集`
+      message: `Queued ${queue.length} customers. Starting capture.`
     };
     await setJob(job);
-    await sleep(500);
+    await sleep(400);
     await goNext(job);
     return statusFromJob(job);
   }
@@ -351,7 +434,7 @@
   async function stopSequentialCapture() {
     const job = await getJob();
     job.running = false;
-    job.message = `已停止：已上传 ${job.saved || 0} 个，当前位置 ${job.index || 0}/${(job.queue || []).length}`;
+    job.message = `Stopped. Uploaded ${job.saved || 0}. Position ${job.index || 0}/${(job.queue || []).length}.`;
     await setJob(job);
     return statusFromJob(job);
   }
@@ -364,7 +447,8 @@
       index: job.index || 0,
       saved: job.saved || 0,
       failed: job.failed || 0,
-      message: job.message || "准备就绪"
+      skipped: job.skipped || 0,
+      message: job.message || "Ready"
     };
   }
 
@@ -385,7 +469,7 @@
       if (message.action === "captureCurrentOnly") {
         const customer = await captureCurrentCustomer({});
         const result = await submit(customer);
-        sendResponse({ ok: true, saved: result.saved || 1, message: `已上传：${customer.display_name}` });
+        sendResponse({ ok: true, saved: result.saved || 1, message: `Uploaded: ${customer.display_name}` });
       }
     })().catch((error) => sendResponse({ ok: false, error: error.message || String(error) }));
     return true;
@@ -394,11 +478,11 @@
   function watchJob() {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
-      setTimeout(processCurrentPageIfNeeded, 1800);
+      setTimeout(processCurrentPageIfNeeded, 1200);
     }
     processCurrentPageIfNeeded();
   }
 
   processCurrentPageIfNeeded();
-  setInterval(watchJob, 3000);
+  setInterval(watchJob, 2500);
 })();

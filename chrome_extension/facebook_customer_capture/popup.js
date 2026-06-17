@@ -12,7 +12,8 @@ function renderStatus(data) {
     `Message: ${data.message || "Ready"}`,
     `Queue: ${data.index || 0}/${data.total || 0}`,
     `Uploaded: ${data.saved || 0}`,
-    `Failed: ${data.failed || 0}`
+    `Failed: ${data.failed || 0}`,
+    `Skipped: ${data.skipped || 0}`
   ].join("\n");
 }
 
