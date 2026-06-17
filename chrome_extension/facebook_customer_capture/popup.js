@@ -1,8 +1,45 @@
 const statusEl = document.getElementById("status");
+let statusTimer = null;
 
-function setStatus(text, isError = false) {
-  statusEl.textContent = text;
-  statusEl.className = isError ? "danger" : "";
+function value(id) {
+  return Number(document.getElementById(id).value || 0);
+}
+
+function options() {
+  return {
+    maxCustomers: value("maxCustomers") || 3000,
+    scanDelayMs: value("scanDelayMs") || 1400,
+    batchSize: value("batchSize") || 25,
+    importDelayMs: value("importDelayMs") || 3000
+  };
+}
+
+function fmtTime(seconds) {
+  if (seconds === null || seconds === undefined) return "-";
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return minutes ? `${minutes}m ${rest}s` : `${rest}s`;
+}
+
+function renderStatus(data) {
+  if (!data || !data.ok) {
+    statusEl.textContent = (data && data.error) || "No page response. Refresh Facebook/Messenger and try again.";
+    statusEl.className = "danger";
+    return;
+  }
+  statusEl.className = "";
+  statusEl.textContent = [
+    `Status: ${data.message || "Ready"}`,
+    `Queue: ${data.queued || 0}`,
+    `Imported: ${data.imported || 0}`,
+    `Failed: ${data.failed || 0}`,
+    `Remaining: ${data.remaining || 0}`,
+    `Scan rounds: ${data.scanRounds || 0}`,
+    `No-new rounds: ${data.stagnantRounds || 0}`,
+    `Duplicate seen: ${data.duplicateInPage || 0}`,
+    `Scanning: ${data.scanning ? "yes" : "no"} | Importing: ${data.importing ? "yes" : "no"} | Paused: ${data.paused ? "yes" : "no"}`,
+    `Elapsed: ${fmtTime(data.elapsed || 0)} | ETA: ${fmtTime(data.etaSeconds)}`
+  ].join("\n");
 }
 
 async function activeTab() {
@@ -10,28 +47,42 @@ async function activeTab() {
   return tab;
 }
 
-async function sendToPage(action) {
+async function send(action, extra = {}) {
   const tab = await activeTab();
   if (!tab || !tab.id) {
-    setStatus("没有找到当前页面。", true);
-    return;
+    renderStatus({ ok: false, error: "No active tab found." });
+    return null;
   }
   try {
-    const response = await chrome.tabs.sendMessage(tab.id, { action });
-    if (!response || !response.ok) {
-      setStatus((response && response.error) || "页面没有响应，刷新 Facebook 页面后再试。", true);
-      return;
-    }
-    if (action === "captureCurrent") {
-      setStatus(`已保存：${response.result.display_name || "当前客户"}`);
-    } else {
-      setStatus(`已扫描并提交 ${response.saved || 0} 个客户。`);
-    }
+    const response = await chrome.tabs.sendMessage(tab.id, { action, ...extra });
+    renderStatus(response);
+    return response;
   } catch (error) {
-    setStatus("插件还没有注入当前页面。请刷新 Facebook/Messenger 页面后再点。", true);
+    renderStatus({ ok: false, error: "Extension is not active on this page. Refresh Facebook/Messenger and try again." });
+    return null;
   }
 }
 
-document.getElementById("save-current").addEventListener("click", () => sendToPage("captureCurrent"));
-document.getElementById("scan-visible").addEventListener("click", () => sendToPage("scanVisible"));
-document.getElementById("test-config").addEventListener("click", () => sendToPage("testConfig"));
+function pollStatus() {
+  if (statusTimer) clearInterval(statusTimer);
+  statusTimer = setInterval(() => send("status"), 1200);
+}
+
+document.getElementById("scan-all").addEventListener("click", async () => {
+  await send("scanAll", { options: options() });
+  pollStatus();
+});
+document.getElementById("import-queue").addEventListener("click", async () => {
+  await send("importQueue", { options: options() });
+  pollStatus();
+});
+document.getElementById("stop").addEventListener("click", () => send("stop"));
+document.getElementById("pause").addEventListener("click", () => send("pauseImport"));
+document.getElementById("resume").addEventListener("click", () => send("resumeImport"));
+document.getElementById("scan-visible").addEventListener("click", () => send("scanVisible"));
+document.getElementById("save-current").addEventListener("click", () => send("captureCurrent"));
+document.getElementById("clear").addEventListener("click", () => send("clearQueue"));
+document.getElementById("test-config").addEventListener("click", () => send("testConfig"));
+
+send("status");
+pollStatus();

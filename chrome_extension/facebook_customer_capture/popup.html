@@ -4,28 +4,46 @@
   <meta charset="utf-8">
   <style>
     :root{font-family:Arial,sans-serif;color:#17202a}
-    body{width:360px;margin:0;background:#f6f8fb;padding:14px}
+    body{width:390px;margin:0;background:#f6f8fb;padding:14px}
     h1{font-size:16px;margin:0 0 10px}
     .card{background:#fff;border:1px solid #d8dee8;border-radius:8px;padding:12px;display:grid;gap:10px}
     .muted{color:#6a7682;font-size:12px;line-height:1.45}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+    label{display:grid;gap:4px;font-size:12px;color:#3e4b57;font-weight:700}
+    input{border:1px solid #cfd7e2;border-radius:8px;padding:8px;font:inherit}
     button,a{border:0;border-radius:8px;background:#1f8a70;color:#fff;text-decoration:none;font-weight:800;padding:10px 12px;cursor:pointer;text-align:center}
     .secondary{background:#e8edf3;color:#17202a}
     .danger{background:#fff2f0;color:#a8071a;border:1px solid #ffccc7}
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-    #status{font-size:12px;color:#3e4b57;line-height:1.4;white-space:pre-wrap}
+    .warn{background:#fff7e6;color:#8a4b00;border:1px solid #ffd591}
+    #status{font-size:12px;color:#3e4b57;line-height:1.45;white-space:pre-wrap;border:1px solid #edf0f4;border-radius:8px;padding:9px;background:#fbfcfd}
   </style>
 </head>
 <body>
-  <h1>Coolfix CRM 客户采集</h1>
+  <h1>Coolfix CRM Customer Capture</h1>
   <div class="card">
-    <div class="muted">打开 Facebook、Messenger 或 Marketplace 页面后，先保存当前客户；在客户列表页可以扫描当前屏幕可见客户。</div>
-    <button id="save-current">保存当前客户</button>
-    <button id="scan-visible" class="secondary">扫描当前页面客户列表</button>
-    <div class="row">
-      <a class="secondary" href="https://crm-8t7y.onrender.com/?view=customers" target="_blank">打开 CRM</a>
-      <button id="test-config" class="secondary">检查连接</button>
+    <div class="muted">Open Messenger or Marketplace customer list, then scan all visible/loadable customers first. Import runs from the saved queue.</div>
+    <div class="grid3">
+      <label>Max scan<input id="maxCustomers" type="number" min="1" max="20000" value="3000"></label>
+      <label>Scan wait ms<input id="scanDelayMs" type="number" min="300" max="10000" value="1400"></label>
+      <label>Batch size<input id="batchSize" type="number" min="1" max="50" value="25"></label>
     </div>
-    <div id="status"></div>
+    <label>Import interval ms<input id="importDelayMs" type="number" min="500" max="60000" value="3000"></label>
+    <div class="grid">
+      <button id="scan-all">Scan all customers</button>
+      <button id="stop" class="warn">Stop</button>
+      <button id="import-queue">Import queue</button>
+      <button id="pause" class="secondary">Pause import</button>
+      <button id="resume" class="secondary">Resume import</button>
+      <button id="scan-visible" class="secondary">Scan current screen</button>
+      <button id="save-current" class="secondary">Save current customer</button>
+      <button id="clear" class="danger">Clear queue</button>
+    </div>
+    <div class="grid">
+      <a class="secondary" href="https://crm-8t7y.onrender.com/?view=customers" target="_blank">Open CRM</a>
+      <button id="test-config" class="secondary">Check config</button>
+    </div>
+    <div id="status">Loading...</div>
   </div>
   <script src="popup.js"></script>
 </body>
