@@ -48,6 +48,13 @@
     return "facebook";
   }
 
+  function currentMode() {
+    const value = String(location.href || "").toLowerCase();
+    if (value.includes("messenger.com") || value.includes("/messages/")) return "messenger";
+    if (value.includes("/marketplace/")) return "marketplace";
+    return "facebook";
+  }
+
   function pageTitle() {
     const og = document.querySelector('meta[property="og:title"]')?.content;
     return clean(og || document.title, 180)
@@ -56,16 +63,33 @@
       .replace(/\s*\(\d+\)\s*$/, "");
   }
 
-  function likelyCustomerLink(href) {
+  function isMessengerThreadLink(href) {
+    const value = String(href || "").toLowerCase();
+    return value.includes("messenger.com/t/")
+      || value.includes("facebook.com/messages/t/")
+      || value.includes("/messages/t/")
+      || value.includes("/messages/e2ee/t/");
+  }
+
+  function likelyCustomerLink(href, mode = currentMode()) {
     const value = String(href || "").toLowerCase();
     if (!value.includes("facebook.com") && !value.includes("messenger.com")) return false;
     if (value.includes("/groups/") || value.includes("/settings") || value.includes("/help")) return false;
     if (value.includes("/notifications") || value.includes("/watch") || value.includes("/reel/")) return false;
-    if (value.includes("/marketplace/you/")) return false;
-    if (value.includes("/messages/") || value.includes("messenger.com/t/")) return true;
-    if (value.includes("/marketplace/item/")) return true;
-    if (value.includes("/profile.php")) return true;
-    return /facebook\.com\/[a-z0-9_.-]+\/?(\?|$)/i.test(value);
+
+    if (mode === "messenger") {
+      return isMessengerThreadLink(value);
+    }
+
+    if (mode === "marketplace") {
+      if (isMessengerThreadLink(value)) return true;
+      if (value.includes("/messages/")) return true;
+      if (value.includes("/marketplace/item/")) return false;
+      if (value.includes("/marketplace/you/")) return false;
+      return false;
+    }
+
+    return isMessengerThreadLink(value) || value.includes("/messages/");
   }
 
   function bestAvatar(root = document) {
@@ -109,9 +133,11 @@
   function collectVisibleCustomerLinks() {
     const seen = new Set();
     const links = [];
+    const mode = currentMode();
     for (const anchor of [...document.querySelectorAll("a[href]")].filter(visible)) {
       const item = linkFromAnchor(anchor);
       if (!item) continue;
+      if (mode === "messenger" && !isMessengerThreadLink(item.url)) continue;
       const key = `${item.source}|${item.url}|${item.display_name.toLowerCase()}`;
       if (seen.has(key)) continue;
       seen.add(key);
