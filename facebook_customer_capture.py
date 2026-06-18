@@ -86,6 +86,9 @@ def merge_metadata(existing, item):
 
 
 def normalized_messages(item, latest_message, captured_at):
+    if item.get("capture_mode") != "thread" and not item.get("include_messages"):
+        return []
+
     raw_messages = item.get("messages")
     messages = raw_messages if isinstance(raw_messages, list) else []
     normalized = []
@@ -107,7 +110,7 @@ def normalized_messages(item, latest_message, captured_at):
             }
         )
 
-    if latest_message and not any(message["text"] == latest_message for message in normalized):
+    if item.get("include_latest_as_message") and latest_message and not any(message["text"] == latest_message for message in normalized):
         normalized.append(
             {
                 "text": latest_message,
@@ -151,7 +154,7 @@ def upsert_customer(item):
     }
     if profile_pic_url:
         customer_payload["profile_pic_url"] = profile_pic_url
-    if latest_message:
+    if item.get("capture_mode") == "thread" and latest_message:
         customer_payload["last_message_at"] = captured_at
 
     created = False
