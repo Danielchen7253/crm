@@ -14,6 +14,27 @@ crm_module = app_live_new.crm_module
 
 CAPTURE_TOKEN = os.getenv("CRM_CAPTURE_TOKEN", "")
 ALLOWED_SOURCES = {"private_messenger", "marketplace", "facebook", "instagram", "tiktok"}
+BAD_DISPLAY_NAMES = {
+    "facebook",
+    "facebook marketplace",
+    "marketplace",
+    "messenger",
+    "chat",
+    "chats",
+    "messages",
+    "friends",
+    "home",
+    "notifications",
+    "settings",
+    "search",
+    "聊天",
+    "今日精华",
+    "好友",
+    "通知",
+    "设置",
+    "搜索",
+    "首页",
+}
 
 
 def now_iso():
@@ -32,6 +53,13 @@ def cors_response(payload, status=200):
 def clean_text(value, limit=500):
     text = " ".join(str(value or "").split())
     return text[:limit]
+
+
+def bad_display_name(value):
+    normalized = clean_text(value, 160).strip().lower()
+    if not normalized or normalized in BAD_DISPLAY_NAMES:
+        return True
+    return any(token in normalized for token in ("今日精华", "facebook marketplace", "在 messenger"))
 
 
 def stable_hash(*parts):
@@ -133,6 +161,8 @@ def upsert_customer(item):
     identity = find_identity(source, external_id)
 
     display_name = clean_text(item.get("display_name"), 160) or "Facebook Customer"
+    if bad_display_name(display_name):
+        raise ValueError("Ignored non-customer row from Facebook navigation.")
     profile_pic_url = clean_text(item.get("profile_pic_url"), 2000)
     latest_message = clean_text(item.get("latest_message"), 4000)
     captured_at = clean_text(item.get("captured_at"), 80) or now_iso()
