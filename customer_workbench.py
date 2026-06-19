@@ -20,6 +20,14 @@ AI_TONE_DEFAULT = (
     "not a robot. Do not overpromise. Ask for model/photo when needed."
 )
 CAPACITOR_KEYWORDS = ("capacitor", "cbb65", "uf", "mfd", "microfarad", "电容")
+CUSTOMER_CATEGORY_TAGS = [
+    "商用冰箱维修客户",
+    "家用冰箱维修客户",
+    "空调维修客户",
+    "空调维修师傅",
+    "批发商客户",
+]
+MANUAL_SOURCE = "manual"
 
 
 def customer_tags(customer):
@@ -34,7 +42,7 @@ def is_closed_customer(customer):
 def filtered_customers(customers, view):
     if view == "closed":
         return [customer for customer in customers if is_closed_customer(customer)]
-    if view in {"ai", "ops", "settings", "integrations"}:
+    if view in {"ai", "ops", "settings", "integrations", "manual"}:
         return []
     return [customer for customer in customers if not is_closed_customer(customer)]
 
@@ -46,6 +54,7 @@ def view_title(view):
         "closed": "成交客户",
         "ai": "AI固定话术",
         "integrations": "接口管理",
+        "manual": "新建客户",
     }.get(view, "客户池")
 
 
@@ -228,6 +237,7 @@ def source_label(source):
         "facebook": "Facebook",
         "shopify": "Shopify",
         "tiktok": "TikTok",
+        "manual": "手动录入",
         "website": "网站",
     }.get(source or "", source or "未知来源")
 
@@ -264,6 +274,55 @@ def enrich_customers(customers):
         customer["original_channel_url"] = original_channel_url(customer)
 
 
+def clean_manual_customer_category(value):
+    value = (value or "").strip()
+    return value if value in CUSTOMER_CATEGORY_TAGS else CUSTOMER_CATEGORY_TAGS[0]
+
+
+def create_manual_customer(form):
+    now = crm_module.now_iso()
+    name = (form.get("display_name") or "").strip()
+    phone = (form.get("phone") or "").strip()
+    email = (form.get("email") or "").strip()
+    company = (form.get("company") or "").strip()
+    source_url = (form.get("source_url") or "").strip()
+    notes = (form.get("notes") or "").strip()
+    category = clean_manual_customer_category(form.get("category"))
+    if not name:
+        name = phone or email or "手动客户"
+    metadata = {
+        "manual": True,
+        "phone": phone,
+        "email": email,
+        "company": company,
+        "source_url": source_url,
+        "notes": notes,
+    }
+    customer = crm_module.sb_post(
+        "customers",
+        {
+            "display_name": name,
+            "source": MANUAL_SOURCE,
+            "first_seen_at": now,
+            "last_seen_at": now,
+            "last_message_at": now,
+            "tags": [category],
+            "metadata": metadata,
+        },
+    )[0]
+    crm_module.sb_post(
+        "customer_identities",
+        {
+            "customer_id": customer["id"],
+            "provider": MANUAL_SOURCE,
+            "provider_user_id": f"manual:{customer['id']}",
+            "display_name": name,
+            "raw_profile": metadata,
+        },
+    )
+    return customer
+
+
 def load_workspace(selected_id):
     view = app_live_new.request.args.get("view", "customers")
     if view in {"unclassified", "today", "quotes"}:
@@ -280,7 +339,7 @@ def load_workspace(selected_id):
     enrich_customers(customers)
     app_live_new.attach_last_message_preview(customers)
     customer_pool = filtered_customers(customers, view)
-    if view in {"ai", "ops", "integrations"}:
+    if view in {"ai", "ops", "integrations", "manual"}:
         selected_id = None
     elif customer_pool and not selected_id:
         selected_id = customer_pool[0]["id"]
@@ -395,7 +454,7 @@ TEMPLATE = """
 <title>CRM 客户工作台</title>
 <style>
 :root{font-family:Arial,"Microsoft YaHei",sans-serif;color:#17202a;background:#f4f6f8}
-*{box-sizing:border-box}body{margin:0}.app{display:grid;grid-template-columns:118px 320px minmax(0,1fr);height:100vh;min-height:640px;overflow:hidden}.nav{background:#16202a;color:#dbe3ec;display:flex;flex-direction:column;gap:8px;padding:14px 10px}.nav-title{color:#fff;font-size:16px;font-weight:900;padding:8px 8px 14px}.nav-link{display:grid;gap:4px;color:inherit;text-decoration:none;border-radius:8px;padding:11px 9px;font-size:13px;line-height:1.2}.nav-link:hover,.nav-link.active{background:#233241;color:#fff}.nav-count{color:#9fb0bf;font-size:11px}.middle{background:#fff;border-right:1px solid #d8dee8;overflow:auto}.middle-head{position:sticky;top:0;z-index:3;background:#fff;border-bottom:1px solid #edf0f4;padding:14px 16px}.middle-title{font-weight:900;font-size:17px}.middle-sub{color:#6a7682;font-size:12px;margin-top:3px}.customer{display:grid;grid-template-columns:46px minmax(0,1fr);gap:11px;align-items:center;min-height:76px;padding:12px 14px;border-bottom:1px solid #edf0f4;text-decoration:none;color:inherit}.customer:hover{background:#f8fafb}.customer.active{background:#eef7f4;border-left:4px solid #1f8a70;padding-left:10px}.avatar{width:46px;height:46px;border-radius:50%;background:#1f8a70;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;overflow:hidden;flex:none}.avatar.large{width:76px;height:76px;font-size:26px}.avatar img{width:100%;height:100%;object-fit:cover}.customer-info{min-width:0;display:grid;gap:6px}.customer-top{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}.customer-name{font-size:14px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.last-time{color:#8a96a3;font-size:11px;white-space:nowrap}.customer-bottom{display:grid;grid-template-columns:22px minmax(0,1fr);gap:7px;align-items:center}.source-logo{width:22px;height:22px;border-radius:50%;border:1px solid #d8dee8;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden;font-size:10px;font-weight:900;color:#6a7682}.source-logo img{width:100%;height:100%;object-fit:contain}.last-preview{min-width:0;color:#6a7682;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.work{display:flex;flex-direction:column;min-width:0;height:100vh;overflow:hidden}.profile{background:#fff;border-bottom:1px solid #d8dee8;padding:18px 24px}.profile-main{display:flex;align-items:flex-start;gap:16px}.profile h1{font-size:25px;line-height:1.2;margin:0 0 10px}.profile-meta{display:flex;flex-wrap:wrap;gap:8px}.pill{border:1px solid #d8dee8;background:#f8fafb;border-radius:999px;padding:5px 10px;font-size:12px;color:#3e4b57}.tag{background:#eef7f4;border-color:#c7d7d2;color:#17634f;font-weight:800}.profile-actions{margin-left:auto;display:flex;gap:8px;align-items:center}.button,button{border:0;border-radius:8px;background:#1f8a70;color:#fff;font-weight:800;cursor:pointer;font-size:14px;padding:10px 14px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:40px}.secondary-button{background:#e8edf3;color:#17202a}.workspace{flex:1;overflow:auto;padding:18px 24px;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;align-items:start}.panel{background:#fff;border:1px solid #d8dee8;border-radius:8px;padding:16px;display:grid;gap:12px;min-width:0}.panel h2{font-size:16px;margin:0}.muted{color:#6a7682;font-size:13px;line-height:1.45}.action-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.field-list{display:grid;gap:9px}.field{display:grid;grid-template-columns:88px minmax(0,1fr);gap:10px;font-size:13px;border-bottom:1px solid #edf0f4;padding-bottom:8px}.field:last-child{border-bottom:0;padding-bottom:0}.label{color:#6a7682}.value{font-weight:700;min-width:0;overflow-wrap:anywhere}.messages{display:flex;flex-direction:column;gap:10px;max-height:420px;overflow:auto;padding-right:4px}.message{max-width:86%;padding:10px 12px;border:1px solid #d8dee8;border-radius:8px;background:#fff;line-height:1.45;font-size:13px;overflow-wrap:anywhere}.message.outbound{align-self:flex-end;background:#eaf2ff;border-color:#c9dcff}.message.inbound{align-self:flex-start}.message-text{white-space:pre-wrap}.attachment-list{display:grid;gap:8px;margin-top:8px}.attachment-image{display:block;max-width:min(320px,100%);max-height:320px;border-radius:8px;border:1px solid #d8dee8;object-fit:contain;background:#f8fafb}.attachment-audio{width:min(320px,100%);height:42px;display:block}.attachment-file{display:inline-flex;min-height:34px;border:1px solid #c7d7d2;border-radius:8px;color:#17634f;background:#f7fbfa;padding:7px 10px;font-size:13px;text-decoration:none;word-break:break-all}.time{color:#6a7682;font-size:11px;margin-top:6px}.reply{display:grid;gap:10px}.reply-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end}.ai-draft{display:flex;flex-wrap:wrap;gap:8px;align-items:center;color:#3e4b57;font-size:12px}.ai-badge{border:1px solid #c7d7d2;background:#eef7f4;color:#17634f;border-radius:999px;padding:4px 9px;font-weight:800}textarea,input{width:100%;border:1px solid #cfd7e2;border-radius:8px;padding:10px 12px;font:inherit;line-height:1.4;background:#fff}textarea{min-height:96px;resize:vertical}.rule-row{display:grid;gap:6px;border-bottom:1px solid #edf0f4;padding:12px 0}.rule-title{font-weight:900}.empty{margin:20px;background:#fff;border:1px solid #d8dee8;border-radius:8px;padding:22px}.mobile-back,.mobile-menu{display:none}
+*{box-sizing:border-box}body{margin:0}.app{display:grid;grid-template-columns:118px 320px minmax(0,1fr);height:100vh;min-height:640px;overflow:hidden}.nav{background:#16202a;color:#dbe3ec;display:flex;flex-direction:column;gap:8px;padding:14px 10px}.nav-title{color:#fff;font-size:16px;font-weight:900;padding:8px 8px 14px}.nav-link{display:grid;gap:4px;color:inherit;text-decoration:none;border-radius:8px;padding:11px 9px;font-size:13px;line-height:1.2}.nav-link:hover,.nav-link.active{background:#233241;color:#fff}.nav-count{color:#9fb0bf;font-size:11px}.middle{background:#fff;border-right:1px solid #d8dee8;overflow:auto}.middle-head{position:sticky;top:0;z-index:3;background:#fff;border-bottom:1px solid #edf0f4;padding:14px 16px}.middle-title{font-weight:900;font-size:17px}.middle-sub{color:#6a7682;font-size:12px;margin-top:3px}.customer{display:grid;grid-template-columns:46px minmax(0,1fr);gap:11px;align-items:center;min-height:76px;padding:12px 14px;border-bottom:1px solid #edf0f4;text-decoration:none;color:inherit}.customer:hover{background:#f8fafb}.customer.active{background:#eef7f4;border-left:4px solid #1f8a70;padding-left:10px}.avatar{width:46px;height:46px;border-radius:50%;background:#1f8a70;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;overflow:hidden;flex:none}.avatar.large{width:76px;height:76px;font-size:26px}.avatar img{width:100%;height:100%;object-fit:cover}.customer-info{min-width:0;display:grid;gap:6px}.customer-top{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}.customer-name{font-size:14px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.last-time{color:#8a96a3;font-size:11px;white-space:nowrap}.customer-bottom{display:grid;grid-template-columns:22px minmax(0,1fr);gap:7px;align-items:center}.source-logo{width:22px;height:22px;border-radius:50%;border:1px solid #d8dee8;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden;font-size:10px;font-weight:900;color:#6a7682}.source-logo img{width:100%;height:100%;object-fit:contain}.last-preview{min-width:0;color:#6a7682;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.work{display:flex;flex-direction:column;min-width:0;height:100vh;overflow:hidden}.profile{background:#fff;border-bottom:1px solid #d8dee8;padding:18px 24px}.profile-main{display:flex;align-items:flex-start;gap:16px}.profile h1{font-size:25px;line-height:1.2;margin:0 0 10px}.profile-meta{display:flex;flex-wrap:wrap;gap:8px}.pill{border:1px solid #d8dee8;background:#f8fafb;border-radius:999px;padding:5px 10px;font-size:12px;color:#3e4b57}.tag{background:#eef7f4;border-color:#c7d7d2;color:#17634f;font-weight:800}.profile-actions{margin-left:auto;display:flex;gap:8px;align-items:center}.button,button{border:0;border-radius:8px;background:#1f8a70;color:#fff;font-weight:800;cursor:pointer;font-size:14px;padding:10px 14px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:40px}.secondary-button{background:#e8edf3;color:#17202a}.workspace{flex:1;overflow:auto;padding:18px 24px;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;align-items:start}.panel{background:#fff;border:1px solid #d8dee8;border-radius:8px;padding:16px;display:grid;gap:12px;min-width:0}.panel h2{font-size:16px;margin:0}.muted{color:#6a7682;font-size:13px;line-height:1.45}.action-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.field-list{display:grid;gap:9px}.field{display:grid;grid-template-columns:88px minmax(0,1fr);gap:10px;font-size:13px;border-bottom:1px solid #edf0f4;padding-bottom:8px}.field:last-child{border-bottom:0;padding-bottom:0}.label{color:#6a7682}.value{font-weight:700;min-width:0;overflow-wrap:anywhere}.messages{display:flex;flex-direction:column;gap:10px;max-height:420px;overflow:auto;padding-right:4px}.message{max-width:86%;padding:10px 12px;border:1px solid #d8dee8;border-radius:8px;background:#fff;line-height:1.45;font-size:13px;overflow-wrap:anywhere}.message.outbound{align-self:flex-end;background:#eaf2ff;border-color:#c9dcff}.message.inbound{align-self:flex-start}.message-text{white-space:pre-wrap}.attachment-list{display:grid;gap:8px;margin-top:8px}.attachment-image{display:block;max-width:min(320px,100%);max-height:320px;border-radius:8px;border:1px solid #d8dee8;object-fit:contain;background:#f8fafb}.attachment-audio{width:min(320px,100%);height:42px;display:block}.attachment-file{display:inline-flex;min-height:34px;border:1px solid #c7d7d2;border-radius:8px;color:#17634f;background:#f7fbfa;padding:7px 10px;font-size:13px;text-decoration:none;word-break:break-all}.time{color:#6a7682;font-size:11px;margin-top:6px}.reply{display:grid;gap:10px}.reply-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end}.ai-draft{display:flex;flex-wrap:wrap;gap:8px;align-items:center;color:#3e4b57;font-size:12px}.ai-badge{border:1px solid #c7d7d2;background:#eef7f4;color:#17634f;border-radius:999px;padding:4px 9px;font-weight:800}textarea,input,select{width:100%;border:1px solid #cfd7e2;border-radius:8px;padding:10px 12px;font:inherit;line-height:1.4;background:#fff}textarea{min-height:96px;resize:vertical}.rule-row{display:grid;gap:6px;border-bottom:1px solid #edf0f4;padding:12px 0}.rule-title{font-weight:900}.empty{margin:20px;background:#fff;border:1px solid #d8dee8;border-radius:8px;padding:22px}.mobile-back,.mobile-menu{display:none}
 @media(max-width:1060px){.app{grid-template-columns:92px 250px minmax(0,1fr)}.workspace{grid-template-columns:1fr}.nav-link{font-size:12px;padding:9px 7px}.profile,.workspace{padding:14px}.avatar.large{width:58px;height:58px}}
 @media(max-width:720px){html,body{height:100%;overflow:hidden;background:#fff}.app{display:block;height:100dvh;min-height:0}.nav{display:none}.mobile-menu{display:block;position:fixed;right:10px;top:10px;z-index:80}.mobile-menu summary{list-style:none;width:42px;height:42px;border-radius:12px;background:#16202a;color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:900;box-shadow:0 8px 24px rgba(15,23,42,.18)}.mobile-menu summary::-webkit-details-marker{display:none}.mobile-menu-panel{margin-top:8px;min-width:184px;background:#16202a;color:#dbe3ec;border-radius:12px;padding:8px;box-shadow:0 14px 34px rgba(15,23,42,.28);display:grid;gap:6px}.middle{height:100dvh;border-right:0}.middle-head{padding:14px 64px 14px 16px}.customer{grid-template-columns:48px minmax(0,1fr);min-height:74px;padding:12px 16px}.avatar{width:48px;height:48px}.app:not(.mobile-chat-open) .work{display:none}.app.mobile-chat-open .middle{display:none}.app.mobile-chat-open .work{display:flex;height:100dvh;background:#f4f6f8}.profile{position:sticky;top:0;z-index:20;padding:10px 12px}.profile-main{align-items:center;gap:8px}.mobile-back{display:inline-flex;align-items:center;justify-content:center;width:34px;height:44px;color:#17634f;text-decoration:none;font-weight:900;font-size:20px;flex:none}.avatar.large{width:44px;height:44px;font-size:16px}.profile h1{font-size:17px;margin:0 0 6px}.profile-meta{flex-wrap:nowrap;overflow:auto;gap:6px}.pill{white-space:nowrap;font-size:11px;padding:4px 8px}.profile-actions{margin-left:0}.profile-actions button{min-height:34px;padding:0 10px;font-size:12px}.workspace{display:block;flex:1;overflow:auto;padding:12px}.panel{margin-bottom:12px;padding:13px}.action-grid{grid-template-columns:1fr}.field{grid-template-columns:72px minmax(0,1fr)}.messages{max-height:none}.reply-row{grid-template-columns:1fr}.empty{margin:16px}.button,button{width:100%}}
 </style>
@@ -418,7 +477,10 @@ TEMPLATE = """
 <a class="nav-link" href="/settings"><span>系统设置</span><span class="nav-count">lock</span></a>
 </aside>
 <aside class="middle">
-{% if view == 'ai' %}
+{% if view == 'manual' %}
+<div class="middle-head"><div class="middle-title">新建客户</div><div class="middle-sub">手动补充重要客户</div></div>
+<a class="customer active" href="/?view=manual"><div class="source-logo">+</div><div class="customer-info"><div class="customer-name">建立客户档案</div><div class="last-preview">选择客户分类，保存到客户池</div></div></a>
+{% elif view == 'ai' %}
 <div class="middle-head"><div class="middle-title">AI固定话术</div><div class="middle-sub">固定答案集中维护</div></div>
 {% for rule in fixed_reply_rules %}
 <a class="customer" href="#rule-{{ rule.id or loop.index }}"><div class="source-logo">AI</div><div class="customer-info"><div class="customer-name">{{ rule.title }}</div><div class="last-preview">{{ '启用' if rule.is_active else '停用' }} · {{ rule.category }}</div></div></a>
@@ -453,7 +515,31 @@ TEMPLATE = """
 {% endif %}
 </aside>
 <section class="work">
-{% if view == 'ai' %}
+{% if view == 'manual' %}
+<header class="profile"><div class="profile-main"><div><h1>新建客户</h1><div class="profile-meta"><span class="pill tag">手动录入</span><span class="pill">保存后进入客户池</span></div></div></div></header>
+<section class="workspace">
+<div class="panel">
+<h2>客户基本资料</h2>
+<form class="reply" method="post" action="/admin/customers/manual">
+<div class="field-list">
+<div class="field"><div class="label">姓名</div><div class="value"><input name="display_name" placeholder="Customer name"></div></div>
+<div class="field"><div class="label">分类</div><div class="value"><select name="category">{% for category in customer_categories %}<option value="{{ category }}">{{ category }}</option>{% endfor %}</select></div></div>
+<div class="field"><div class="label">电话</div><div class="value"><input name="phone" placeholder="Phone"></div></div>
+<div class="field"><div class="label">邮箱</div><div class="value"><input name="email" placeholder="Email"></div></div>
+<div class="field"><div class="label">公司</div><div class="value"><input name="company" placeholder="Company"></div></div>
+<div class="field"><div class="label">来源</div><div class="value"><input name="source_url" placeholder="Facebook / TikTok / Website link"></div></div>
+</div>
+<textarea name="notes" placeholder="备注：客户需求、报价、下次跟进时间。"></textarea>
+<button type="submit">保存客户</button>
+</form>
+</div>
+<aside class="panel">
+<h2>分类说明</h2>
+<div class="muted">手动建的客户会和 Messenger / WhatsApp / 网站客服导入的客户放在同一个客户池里。</div>
+{% for category in customer_categories %}<div class="field"><div class="label">{{ loop.index }}</div><div class="value">{{ category }}</div></div>{% endfor %}
+</aside>
+</section>
+{% elif view == 'ai' %}
 <header class="profile"><div class="profile-main"><div><h1>AI固定话术</h1><div class="profile-meta"><span class="pill tag">固定答案优先</span><span class="pill">匹配不到再生成草稿</span></div></div></div></header>
 <section class="workspace"><div class="panel">
 {% for rule in fixed_reply_rules %}
@@ -590,6 +676,11 @@ TEMPLATE = """
 
 
 OPS_NAV_LINK = '<a class="nav-link {% if view == \'ops\' %}active{% endif %}" href="/?view=ops"><span>AI运营</span><span class="nav-count">work</span></a>'
+MANUAL_NAV_LINK = '<a class="nav-link {% if view == \'manual\' %}active{% endif %}" href="/?view=manual"><span>新建客户</span><span class="nav-count">+</span></a>'
+TEMPLATE = TEMPLATE.replace(
+    '<a class="nav-link {% if view == \'closed\' %}active{% endif %}" href="/?view=closed"',
+    MANUAL_NAV_LINK + '\n<a class="nav-link {% if view == \'closed\' %}active{% endif %}" href="/?view=closed"',
+)
 TEMPLATE = TEMPLATE.replace(
     '<a class="nav-link {% if view == \'integrations\' %}active{% endif %}" href="/?view=integrations"',
     OPS_NAV_LINK + '\n<a class="nav-link {% if view == \'integrations\' %}active{% endif %}" href="/?view=integrations"',
@@ -624,6 +715,12 @@ def save_ai_ops_settings():
     return app_live_new.redirect("/?view=ops")
 
 
+@app.post("/admin/customers/manual")
+def save_manual_customer():
+    customer = create_manual_customer(app_live_new.request.form)
+    return app_live_new.redirect(f"/?view=customers&customer={customer['id']}", code=303)
+
+
 def live_dashboard():
     if not crm_module.database_ready():
         return "CRM is online, but database is not configured yet."
@@ -639,13 +736,14 @@ def live_dashboard():
         selected_customer=selected,
         selected_messages=messages,
         selected_customer_id=selected_id,
-        mobile_chat_open=bool(app_live_new.request.args.get("customer")) or view in {"ai", "ops", "integrations"},
+        mobile_chat_open=bool(app_live_new.request.args.get("customer")) or view in {"ai", "ops", "integrations", "manual"},
         ai_draft=crm_module.load_ai_draft(selected, messages),
         ai_ops=ai_ops,
         view=view,
         view_title=view_title(view),
         fixed_reply_rules=fixed_reply_rules,
         integration_cards=integration_cards(),
+        customer_categories=CUSTOMER_CATEGORY_TAGS,
         active_count=active_count,
         closed_count=closed_count,
     )
