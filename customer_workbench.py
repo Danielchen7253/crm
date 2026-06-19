@@ -480,7 +480,6 @@ TEMPLATE = """
 <details class="mobile-menu"><summary aria-label="Menu">&#9776;</summary><div class="mobile-menu-panel">
 <a class="nav-link {% if view == 'customers' %}active{% endif %}" href="/?view=customers"><span>客户池</span><span class="nav-count">{{ active_count }}</span></a>
 <a class="nav-link {% if view == 'closed' %}active{% endif %}" href="/?view=closed"><span>成交客户</span><span class="nav-count">{{ closed_count }}</span></a>
-<a class="nav-link {% if view == 'ai' %}active{% endif %}" href="/?view=ai"><span>AI话术</span><span class="nav-count">{{ fixed_reply_rules|length }}</span></a>
 <a class="nav-link" href="/settings"><span>系统设置</span><span class="nav-count">lock</span></a>
 </div></details>
 <main class="app {% if mobile_chat_open %}mobile-chat-open{% endif %}">
@@ -488,7 +487,6 @@ TEMPLATE = """
 <div class="nav-title">CRM</div>
 <a class="nav-link {% if view == 'customers' %}active{% endif %}" href="/?view=customers"><span>客户池</span><span class="nav-count">{{ active_count }}</span></a>
 <a class="nav-link {% if view == 'closed' %}active{% endif %}" href="/?view=closed"><span>成交客户</span><span class="nav-count">{{ closed_count }}</span></a>
-<a class="nav-link {% if view == 'ai' %}active{% endif %}" href="/?view=ai"><span>AI话术</span><span class="nav-count">{{ fixed_reply_rules|length }}</span></a>
 <a class="nav-link" href="/settings"><span>系统设置</span><span class="nav-count">lock</span></a>
 </aside>
 <aside class="middle">
