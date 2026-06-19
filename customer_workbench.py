@@ -690,13 +690,14 @@ TEMPLATE = """
 
 OPS_NAV_LINK = '<a class="nav-link {% if view == \'ops\' %}active{% endif %}" href="/?view=ops"><span>AI运营</span><span class="nav-count">work</span></a>'
 MANUAL_NAV_LINK = '<a class="nav-link {% if view == \'manual\' %}active{% endif %}" href="/?view=manual"><span>新建客户</span><span class="nav-count">+</span></a>'
+PROMOTION_NAV_LINK = '<a class="nav-link" href="/promotion"><span>推广获客</span><span class="nav-count">post</span></a>'
 TEMPLATE = TEMPLATE.replace(
     '<a class="nav-link {% if view == \'closed\' %}active{% endif %}" href="/?view=closed"',
     MANUAL_NAV_LINK + '\n<a class="nav-link {% if view == \'closed\' %}active{% endif %}" href="/?view=closed"',
 )
 TEMPLATE = TEMPLATE.replace(
     '<a class="nav-link" href="/settings"',
-    OPS_NAV_LINK + '\n<a class="nav-link" href="/settings"',
+    OPS_NAV_LINK + '\n' + PROMOTION_NAV_LINK + '\n<a class="nav-link" href="/settings"',
 )
 TEMPLATE = TEMPLATE.replace(
     "</body>",
