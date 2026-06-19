@@ -481,7 +481,6 @@ TEMPLATE = """
 <a class="nav-link {% if view == 'customers' %}active{% endif %}" href="/?view=customers"><span>客户池</span><span class="nav-count">{{ active_count }}</span></a>
 <a class="nav-link {% if view == 'closed' %}active{% endif %}" href="/?view=closed"><span>成交客户</span><span class="nav-count">{{ closed_count }}</span></a>
 <a class="nav-link {% if view == 'ai' %}active{% endif %}" href="/?view=ai"><span>AI话术</span><span class="nav-count">{{ fixed_reply_rules|length }}</span></a>
-<a class="nav-link {% if view == 'integrations' %}active{% endif %}" href="/?view=integrations"><span>接口管理</span><span class="nav-count">API</span></a>
 <a class="nav-link" href="/settings"><span>系统设置</span><span class="nav-count">lock</span></a>
 </div></details>
 <main class="app {% if mobile_chat_open %}mobile-chat-open{% endif %}">
@@ -490,7 +489,6 @@ TEMPLATE = """
 <a class="nav-link {% if view == 'customers' %}active{% endif %}" href="/?view=customers"><span>客户池</span><span class="nav-count">{{ active_count }}</span></a>
 <a class="nav-link {% if view == 'closed' %}active{% endif %}" href="/?view=closed"><span>成交客户</span><span class="nav-count">{{ closed_count }}</span></a>
 <a class="nav-link {% if view == 'ai' %}active{% endif %}" href="/?view=ai"><span>AI话术</span><span class="nav-count">{{ fixed_reply_rules|length }}</span></a>
-<a class="nav-link {% if view == 'integrations' %}active{% endif %}" href="/?view=integrations"><span>接口管理</span><span class="nav-count">API</span></a>
 <a class="nav-link" href="/settings"><span>系统设置</span><span class="nav-count">lock</span></a>
 </aside>
 <aside class="middle">
@@ -658,7 +656,7 @@ TEMPLATE = """
 </div>
 <div class="action-grid">
 {% if selected_customer.original_channel_url %}<a class="button" href="{{ selected_customer.original_channel_url }}" target="_blank" rel="noopener">打开原始渠道</a>{% endif %}
-<a class="button secondary-button" href="/?view=integrations">接口管理</a>
+<a class="button secondary-button" href="/settings">系统设置</a>
 </div>
 </div>
 <div class="panel">
@@ -699,8 +697,8 @@ TEMPLATE = TEMPLATE.replace(
     MANUAL_NAV_LINK + '\n<a class="nav-link {% if view == \'closed\' %}active{% endif %}" href="/?view=closed"',
 )
 TEMPLATE = TEMPLATE.replace(
-    '<a class="nav-link {% if view == \'integrations\' %}active{% endif %}" href="/?view=integrations"',
-    OPS_NAV_LINK + '\n<a class="nav-link {% if view == \'integrations\' %}active{% endif %}" href="/?view=integrations"',
+    '<a class="nav-link" href="/settings"',
+    OPS_NAV_LINK + '\n<a class="nav-link" href="/settings"',
 )
 TEMPLATE = TEMPLATE.replace(
     "</body>",
