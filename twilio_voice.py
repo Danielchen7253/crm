@@ -219,6 +219,7 @@ def upsert_call_record(customer_id, call_sid, payload):
 def create_lead(customer_id, need, status="new", raw=None):
     if not need:
         return []
+    raw = raw or {}
     rows = safe_post(
         "leads",
         {
@@ -232,7 +233,7 @@ def create_lead(customer_id, need, status="new", raw=None):
     )
     if rows:
         return rows
-    return safe_post(
+    rows = safe_post(
         "follow_up_tasks",
         {
             "customer_id": customer_id,
@@ -240,11 +241,16 @@ def create_lead(customer_id, need, status="new", raw=None):
             "title": f"Phone lead: {need[:160]}",
             "status": "open",
             "notes": need[:1000],
-            "raw_context": raw or {},
+            "raw_context": raw,
             "created_at": now_iso(),
             "updated_at": now_iso(),
         },
     )
+    if rows:
+        return rows
+    call_sid = raw.get("call_sid") or "phone"
+    save_voice_message(customer_id, call_sid, "inbound", f"Phone lead ({status}): {need[:1000]}", {"lead_fallback": True, **raw})
+    return []
 
 
 def parse_openai_json(text):
