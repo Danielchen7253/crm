@@ -84,6 +84,42 @@ create table if not exists follow_up_tasks (
 create index if not exists idx_follow_up_tasks_status_due
   on follow_up_tasks(status, due_at asc nulls first, created_at desc);
 
+create table if not exists leads (
+  id uuid primary key default gen_random_uuid(),
+  customer_id uuid references customers(id) on delete cascade,
+  need text not null,
+  status text not null default 'new',
+  raw_context jsonb not null default '{}',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_leads_customer_status
+  on leads(customer_id, status, created_at desc);
+
+create table if not exists calls (
+  id uuid primary key default gen_random_uuid(),
+  customer_id uuid references customers(id) on delete cascade,
+  provider text not null default 'twilio_voice',
+  provider_call_id text,
+  from_phone text,
+  to_phone text,
+  status text not null default 'new',
+  language text,
+  transcript text,
+  summary text,
+  raw_event jsonb not null default '{}',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(provider, provider_call_id)
+);
+
+create index if not exists idx_calls_customer_created
+  on calls(customer_id, created_at desc);
+
+create index if not exists idx_calls_provider_call
+  on calls(provider, provider_call_id);
+
 create table if not exists promotion_posts (
   id uuid primary key default gen_random_uuid(),
   title text,
