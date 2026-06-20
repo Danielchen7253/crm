@@ -14,8 +14,10 @@ from app_live_new import app, crm_module
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
 TWILIO_FROM_NUMBER = os.getenv("TWILIO_FROM_NUMBER", "+18587570488")
+TWILIO_MESSAGING_SERVICE_SID = os.getenv("TWILIO_MESSAGING_SERVICE_SID", "")
 TWILIO_PROVIDER = "twilio_sms"
 TWILIO_SOURCE = "sms"
+TWILIO_SERVICE_CACHE = {"sid": None, "checked": False}
 
 previous_send_customer_message = app.view_functions.get("send_customer_message")
 
@@ -54,6 +56,40 @@ def twilio_auth():
     if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN:
         raise RuntimeError("TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are required.")
     return (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+
+
+def discover_twilio_messaging_service_sid():
+    if TWILIO_MESSAGING_SERVICE_SID:
+        return TWILIO_MESSAGING_SERVICE_SID
+    if TWILIO_SERVICE_CACHE["checked"]:
+        return TWILIO_SERVICE_CACHE["sid"]
+    TWILIO_SERVICE_CACHE["checked"] = True
+    try:
+        services = requests.get(
+            "https://messaging.twilio.com/v1/Services",
+            auth=twilio_auth(),
+            params={"PageSize": "20"},
+            timeout=15,
+        )
+        services.raise_for_status()
+        for service in services.json().get("services") or []:
+            service_sid = service.get("sid")
+            if not service_sid:
+                continue
+            numbers = requests.get(
+                f"https://messaging.twilio.com/v1/Services/{service_sid}/PhoneNumbers",
+                auth=twilio_auth(),
+                params={"PageSize": "50"},
+                timeout=15,
+            )
+            numbers.raise_for_status()
+            for number in numbers.json().get("phone_numbers") or []:
+                if normalize_phone(number.get("phone_number")) == normalize_phone(TWILIO_FROM_NUMBER):
+                    TWILIO_SERVICE_CACHE["sid"] = service_sid
+                    return service_sid
+    except requests.RequestException:
+        return None
+    return None
 
 
 def find_twilio_identity(phone):
@@ -188,15 +224,20 @@ def media_attachments_from_request():
 
 
 def send_twilio_sms(to_phone, text):
+    data = {
+        "To": to_phone,
+        "Body": text,
+        "StatusCallback": "https://crm-8t7y.onrender.com/webhooks/twilio/status",
+    }
+    messaging_service_sid = discover_twilio_messaging_service_sid()
+    if messaging_service_sid:
+        data["MessagingServiceSid"] = messaging_service_sid
+    else:
+        data["From"] = TWILIO_FROM_NUMBER
     response = requests.post(
         f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json",
         auth=twilio_auth(),
-        data={
-            "From": TWILIO_FROM_NUMBER,
-            "To": to_phone,
-            "Body": text,
-            "StatusCallback": "https://crm-8t7y.onrender.com/webhooks/twilio/status",
-        },
+        data=data,
         timeout=20,
     )
     response.raise_for_status()
@@ -224,6 +265,20 @@ def receive_twilio_sms():
 
 @app.post("/webhooks/twilio/status")
 def receive_twilio_status():
+    message_sid = request.form.get("MessageSid") or request.form.get("SmsSid")
+    if message_sid:
+        crm_module.sb_patch(
+            "messages",
+            {
+                "raw_event": {
+                    "twilio_status_callback": dict(request.form),
+                    "delivery_status": request.form.get("MessageStatus") or request.form.get("SmsStatus"),
+                    "delivery_error_code": request.form.get("ErrorCode"),
+                    "delivery_error_message": request.form.get("ErrorMessage"),
+                }
+            },
+            {"provider": f"eq.{TWILIO_PROVIDER}", "provider_message_id": f"eq.{message_sid}"},
+        )
     return jsonify({"ok": True})
 
 
@@ -235,6 +290,7 @@ def twilio_diagnostics():
         {
             "ok": True,
             "from_number": TWILIO_FROM_NUMBER,
+            "messaging_service_present": bool(discover_twilio_messaging_service_sid()),
             "has_account_sid": bool(TWILIO_ACCOUNT_SID),
             "has_auth_token": bool(TWILIO_AUTH_TOKEN),
             "sms_customers": len(customers),
