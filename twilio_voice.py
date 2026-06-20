@@ -219,12 +219,27 @@ def upsert_call_record(customer_id, call_sid, payload):
 def create_lead(customer_id, need, status="new", raw=None):
     if not need:
         return []
-    return safe_post(
+    rows = safe_post(
         "leads",
         {
             "customer_id": customer_id,
             "need": need[:1000],
             "status": status,
+            "raw_context": raw or {},
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+        },
+    )
+    if rows:
+        return rows
+    return safe_post(
+        "follow_up_tasks",
+        {
+            "customer_id": customer_id,
+            "source": VOICE_SOURCE,
+            "title": f"Phone lead: {need[:160]}",
+            "status": "open",
+            "notes": need[:1000],
             "raw_context": raw or {},
             "created_at": now_iso(),
             "updated_at": now_iso(),
@@ -394,14 +409,26 @@ def ai_summary():
 
 @app.get("/admin/voice/diagnostics")
 def voice_diagnostics():
+    calls_available = True
+    leads_available = True
     try:
         calls = crm_module.sb_get("calls", {"select": "id", "limit": "1000"})
     except requests.RequestException:
+        calls_available = False
         calls = []
     try:
         leads = crm_module.sb_get("leads", {"select": "id", "limit": "1000"})
     except requests.RequestException:
+        leads_available = False
         leads = []
+    try:
+        phone_messages = crm_module.sb_get("messages", {"provider": f"eq.{VOICE_PROVIDER}", "select": "id", "limit": "1000"})
+    except requests.RequestException:
+        phone_messages = []
+    try:
+        phone_followups = crm_module.sb_get("follow_up_tasks", {"source": f"eq.{VOICE_SOURCE}", "select": "id", "limit": "1000"})
+    except requests.RequestException:
+        phone_followups = []
     return jsonify(
         {
             "ok": True,
@@ -409,9 +436,11 @@ def voice_diagnostics():
             "status_url": f"{VOICE_BASE_URL}/voice/status",
             "owner_phone_present": bool(OWNER_PHONE),
             "openai_present": bool(crm_module.OPENAI_API_KEY),
-            "calls_table_available": isinstance(calls, list),
-            "leads_table_available": isinstance(leads, list),
+            "calls_table_available": calls_available,
+            "leads_table_available": leads_available,
             "calls": len(calls),
             "leads": len(leads),
+            "phone_messages": len(phone_messages),
+            "phone_followups": len(phone_followups),
         }
     )

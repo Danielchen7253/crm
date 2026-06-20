@@ -254,6 +254,7 @@ def source_label(source):
         "tiktok": "TikTok",
         "manual": "手动录入",
         "website": "网站",
+        "phone": "Phone",
     }.get(source or "", source or "未知来源")
 
 
