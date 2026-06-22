@@ -1,0 +1,56 @@
+.compliancePage {
+  min-height: 100vh;
+  background: #f6f7f9;
+  color: #172033;
+}
+
+.complianceWrap {
+  width: min(920px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 40px 0 64px;
+}
+
+.complianceHeader {
+  display: grid;
+  gap: 10px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid #d9dee8;
+}
+
+.complianceHeader a,
+.complianceText a {
+  color: #1769e0;
+}
+
+.complianceText {
+  display: grid;
+  gap: 18px;
+  padding-top: 24px;
+  line-height: 1.55;
+}
+
+.complianceText h2 {
+  margin-top: 10px;
+}
+
+.complianceText ul,
+.complianceText ol {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.complianceBox {
+  padding: 16px;
+  border: 1px solid #d9dee8;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.complianceFooter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 32px;
+  padding-top: 18px;
+  border-top: 1px solid #d9dee8;
+}
