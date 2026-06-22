@@ -10,3 +10,4 @@ pnpm-latest.tgz
 coverage
 uploads
 *.log
+*.tsbuildinfo
