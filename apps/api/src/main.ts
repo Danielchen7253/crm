@@ -1,6 +1,8 @@
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
+import { CallsService } from "./modules/calls/calls.service";
+import { attachTwilioMediaStream } from "./modules/realtime/twilio-media-stream";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -10,6 +12,7 @@ async function bootstrap() {
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.setGlobalPrefix("api");
+  attachTwilioMediaStream(app.getHttpServer(), app.get(CallsService));
   await app.listen(process.env.PORT ? Number(process.env.PORT) : 4000);
 }
 
