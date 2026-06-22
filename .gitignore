@@ -1,0 +1,12 @@
+node_modules
+.next
+dist
+.pnpm-store
+package
+pnpm.cjs
+pnpm-latest.tgz
+.env
+.env.local
+coverage
+uploads
+*.log

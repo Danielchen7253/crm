@@ -1,0 +1,593 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Channel {
+  messenger
+  whatsapp
+  sms
+  instagram
+  email
+  website_chat
+  phone
+}
+
+enum ConversationStatus {
+  new
+  open
+  assigned
+  pending
+  closed
+  spam
+}
+
+enum MessageDirection {
+  inbound
+  outbound
+  internal
+}
+
+enum MessageStatus {
+  received
+  queued
+  sent
+  delivered
+  read
+  failed
+}
+
+enum MessageType {
+  text
+  image
+  audio
+  video
+  file
+  template
+  system
+}
+
+enum CampaignStatus {
+  draft
+  scheduled
+  sending
+  sent
+  paused
+  failed
+}
+
+enum CampaignRecipientStatus {
+  pending
+  queued
+  sent
+  delivered
+  failed
+  skipped
+  unsubscribed
+}
+
+enum AiAction {
+  suggest_reply
+  ask_human
+  no_reply
+}
+
+enum UserStatus {
+  active
+  disabled
+}
+
+enum CallStatus {
+  ringing
+  active
+  handoff
+  completed
+  failed
+  missed
+}
+
+enum CallDirection {
+  inbound
+  outbound
+}
+
+enum CallEventType {
+  call_started
+  realtime_connected
+  transcript_delta
+  transcript_final
+  ai_response
+  human_handoff
+  recording_available
+  call_ended
+  error
+}
+
+model User {
+  id             String             @id @default(uuid()) @db.Uuid
+  email          String             @unique
+  name           String
+  passwordHash   String?
+  status         UserStatus         @default(active)
+  roles          UserRole[]
+  assigned       Conversation[]     @relation("ConversationAssignee")
+  internalNotes  InternalNote[]
+  auditLogs      AuditLog[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+}
+
+model Role {
+  id          String           @id @default(uuid()) @db.Uuid
+  name        String           @unique
+  description String?
+  users       UserRole[]
+  permissions RolePermission[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model Permission {
+  id          String           @id @default(uuid()) @db.Uuid
+  key         String           @unique
+  description String?
+  roles       RolePermission[]
+}
+
+model UserRole {
+  userId String @db.Uuid
+  roleId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+model RolePermission {
+  roleId       String     @db.Uuid
+  permissionId String     @db.Uuid
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model Customer {
+  id              String             @id @default(uuid()) @db.Uuid
+  displayName     String?
+  primaryPhone    String?
+  primaryEmail    String?
+  language        String?
+  source          Channel?
+  avatarUrl       String?
+  summary         String?
+  valueCents      Int?
+  lastMessageAt   DateTime?
+  lastContactAt   DateTime?
+  deletedAt       DateTime?
+  metadata        Json               @default("{}")
+  identities      CustomerIdentity[]
+  phones          CustomerPhone[]
+  conversations   Conversation[]
+  messages        Message[]
+  callSessions    CallSession[]
+  tags            CustomerTag[]
+  notes           InternalNote[]
+  campaignTargets CampaignRecipient[]
+  files           File[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@index([primaryPhone])
+  @@index([primaryEmail])
+  @@index([lastMessageAt])
+  @@index([deletedAt])
+}
+
+model CustomerPhone {
+  id             String      @id @default(uuid()) @db.Uuid
+  customerId      String      @db.Uuid
+  phone           String
+  label           String?
+  isPrimary       Boolean     @default(false)
+  verifiedAt      DateTime?
+  customer        Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  callSessions    CallSession[]
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([customerId, phone])
+  @@index([phone])
+}
+
+model CustomerIdentity {
+  id                 String          @id @default(uuid()) @db.Uuid
+  customerId          String          @db.Uuid
+  channel             Channel
+  provider            String
+  externalId          String
+  phone               String?
+  email               String?
+  displayName         String?
+  avatarUrl           String?
+  rawProfile          Json            @default("{}")
+  customer            Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  conversations       Conversation[]
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  @@unique([provider, externalId])
+  @@index([channel, externalId])
+  @@index([phone])
+  @@index([email])
+}
+
+model ChannelAccount {
+  id                String         @id @default(uuid()) @db.Uuid
+  channel           Channel
+  name              String
+  providerAccountId String?
+  externalPageId    String?
+  fromAddress       String?
+  encryptedToken    String?
+  encryptedSecret   String?
+  settings          Json           @default("{}")
+  isActive          Boolean        @default(true)
+  conversations     Conversation[]
+  webhookEvents     WebhookEvent[]
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([channel, isActive])
+}
+
+model Conversation {
+  id               String              @id @default(uuid()) @db.Uuid
+  customerId        String              @db.Uuid
+  channelAccountId  String?             @db.Uuid
+  identityId        String?             @db.Uuid
+  channel           Channel
+  externalThreadId  String?
+  status            ConversationStatus  @default(new)
+  assignedToId      String?             @db.Uuid
+  unreadCount       Int                 @default(0)
+  lastMessageAt     DateTime?
+  closedAt          DateTime?
+  metadata          Json                @default("{}")
+  customer          Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  channelAccount    ChannelAccount?     @relation(fields: [channelAccountId], references: [id])
+  identity          CustomerIdentity?   @relation(fields: [identityId], references: [id])
+  assignedTo        User?               @relation("ConversationAssignee", fields: [assignedToId], references: [id])
+  messages          Message[]
+  aiReplyLogs       AiReplyLog[]
+  callSessions      CallSession[]
+  internalNotes     InternalNote[]
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@unique([channel, externalThreadId])
+  @@index([customerId, lastMessageAt])
+  @@index([channel, status])
+  @@index([assignedToId, status])
+}
+
+model CallSession {
+  id                 String           @id @default(uuid()) @db.Uuid
+  customerId          String?          @db.Uuid
+  customerPhoneId     String?          @db.Uuid
+  conversationId      String?          @db.Uuid
+  twilioCallSid       String?          @unique
+  twilioStreamSid     String?
+  fromPhone           String
+  toPhone             String
+  direction           CallDirection    @default(inbound)
+  status              CallStatus       @default(ringing)
+  language            String?
+  startedAt           DateTime         @default(now())
+  answeredAt          DateTime?
+  endedAt             DateTime?
+  durationSeconds     Int?
+  intent              String?
+  confidence          Float?
+  handoffRequired     Boolean          @default(false)
+  handoffReason       String?
+  summary             Json?
+  extractedProfile    Json             @default("{}")
+  metadata            Json             @default("{}")
+  customer            Customer?        @relation(fields: [customerId], references: [id])
+  customerPhone       CustomerPhone?   @relation(fields: [customerPhoneId], references: [id])
+  conversation        Conversation?    @relation(fields: [conversationId], references: [id])
+  transcripts         CallTranscript[]
+  recordings          CallRecording[]
+  events              CallEvent[]
+  aiActions           AiCallAction[]
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@index([fromPhone])
+  @@index([toPhone])
+  @@index([status, startedAt])
+  @@index([customerId, startedAt])
+}
+
+model CallTranscript {
+  id            String       @id @default(uuid()) @db.Uuid
+  callSessionId  String       @db.Uuid
+  speaker        String
+  language       String?
+  text           String
+  isFinal        Boolean      @default(false)
+  offsetMs       Int?
+  rawEvent       Json         @default("{}")
+  callSession    CallSession  @relation(fields: [callSessionId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@index([callSessionId, createdAt])
+}
+
+model CallRecording {
+  id               String       @id @default(uuid()) @db.Uuid
+  callSessionId     String       @db.Uuid
+  provider          String       @default("twilio")
+  externalRecordingId String?
+  url              String
+  durationSeconds  Int?
+  mimeType         String?
+  status           String       @default("available")
+  callSession      CallSession  @relation(fields: [callSessionId], references: [id], onDelete: Cascade)
+  createdAt        DateTime     @default(now())
+
+  @@index([callSessionId])
+}
+
+model CallEvent {
+  id            String        @id @default(uuid()) @db.Uuid
+  callSessionId  String        @db.Uuid
+  type          CallEventType
+  payload       Json          @default("{}")
+  callSession   CallSession   @relation(fields: [callSessionId], references: [id], onDelete: Cascade)
+  createdAt     DateTime      @default(now())
+
+  @@index([callSessionId, createdAt])
+}
+
+model AiCallAction {
+  id             String       @id @default(uuid()) @db.Uuid
+  callSessionId   String       @db.Uuid
+  action          String
+  confidence      Float?
+  reason          String?
+  rawResponse     Json         @default("{}")
+  callSession     CallSession  @relation(fields: [callSessionId], references: [id], onDelete: Cascade)
+  createdAt       DateTime     @default(now())
+
+  @@index([callSessionId, createdAt])
+}
+
+model Message {
+  id                String              @id @default(uuid()) @db.Uuid
+  conversationId    String              @db.Uuid
+  customerId         String              @db.Uuid
+  channel            Channel
+  provider           String
+  externalMessageId  String?
+  fallbackDedupeKey  String?
+  senderExternalId   String?
+  direction          MessageDirection
+  type               MessageType        @default(text)
+  status             MessageStatus      @default(received)
+  text               String?
+  contentHash        String?
+  rawEvent           Json               @default("{}")
+  failedReason       String?
+  sentAt             DateTime           @default(now())
+  deliveredAt        DateTime?
+  readAt             DateTime?
+  conversation       Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  customer           Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  attachments        MessageAttachment[]
+  aiReplyLogs        AiReplyLog[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@unique([channel, externalMessageId])
+  @@unique([fallbackDedupeKey])
+  @@index([conversationId, sentAt])
+  @@index([customerId, sentAt])
+  @@index([channel, status])
+}
+
+model MessageAttachment {
+  id          String      @id @default(uuid()) @db.Uuid
+  messageId   String      @db.Uuid
+  fileId      String?     @db.Uuid
+  type        MessageType
+  url         String
+  mimeType    String?
+  fileName    String?
+  sizeBytes   Int?
+  metadata    Json        @default("{}")
+  message     Message     @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  file        File?       @relation(fields: [fileId], references: [id])
+  createdAt   DateTime    @default(now())
+}
+
+model Tag {
+  id          String        @id @default(uuid()) @db.Uuid
+  name        String        @unique
+  color       String?
+  description String?
+  customers   CustomerTag[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model CustomerTag {
+  customerId String   @db.Uuid
+  tagId      String   @db.Uuid
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@id([customerId, tagId])
+}
+
+model InternalNote {
+  id             String        @id @default(uuid()) @db.Uuid
+  customerId      String        @db.Uuid
+  conversationId  String?       @db.Uuid
+  authorId        String        @db.Uuid
+  body            String
+  customer        Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  conversation    Conversation? @relation(fields: [conversationId], references: [id])
+  author          User          @relation(fields: [authorId], references: [id])
+  createdAt       DateTime      @default(now())
+}
+
+model QuickReply {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String
+  channel     Channel?
+  language    String    @default("en")
+  content     String
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([channel, language, isActive])
+  @@unique([name, language])
+}
+
+model AiReplyLog {
+  id                String     @id @default(uuid()) @db.Uuid
+  messageId          String?    @db.Uuid
+  conversationId      String    @db.Uuid
+  detectedLanguage    String
+  intent              String
+  suggestedReply      String
+  confidence          Float
+  action              AiAction
+  acceptedAt          DateTime?
+  finalText           String?
+  rawResponse         Json       @default("{}")
+  message             Message?   @relation(fields: [messageId], references: [id])
+  conversation        Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  createdAt           DateTime   @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+model Campaign {
+  id          String              @id @default(uuid()) @db.Uuid
+  name        String
+  channel     Channel
+  status      CampaignStatus      @default(draft)
+  templateId  String?             @db.Uuid
+  content     String?
+  scheduledAt DateTime?
+  metadata    Json                @default("{}")
+  recipients  CampaignRecipient[]
+  template    Template?           @relation(fields: [templateId], references: [id])
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+}
+
+model CampaignRecipient {
+  id              String                  @id @default(uuid()) @db.Uuid
+  campaignId       String                  @db.Uuid
+  customerId       String                  @db.Uuid
+  channelIdentityId String?                 @db.Uuid
+  status           CampaignRecipientStatus @default(pending)
+  providerMessageId String?
+  failedReason     String?
+  sentAt           DateTime?
+  campaign         Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  customer         Customer                @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  @@index([campaignId, status])
+}
+
+model Template {
+  id                 String     @id @default(uuid()) @db.Uuid
+  channel            Channel
+  name               String
+  language           String     @default("en")
+  content            String
+  providerTemplateId String?
+  status             String     @default("draft")
+  variables          Json       @default("[]")
+  campaigns          Campaign[]
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  @@unique([channel, name, language])
+}
+
+model WebhookEvent {
+  id               String          @id @default(uuid()) @db.Uuid
+  channel          Channel
+  provider         String
+  channelAccountId String?         @db.Uuid
+  externalEventId  String?
+  signatureValid   Boolean         @default(false)
+  processed        Boolean         @default(false)
+  error            String?
+  rawPayload       Json
+  channelAccount   ChannelAccount? @relation(fields: [channelAccountId], references: [id])
+  createdAt        DateTime        @default(now())
+  processedAt      DateTime?
+
+  @@index([channel, processed])
+  @@index([externalEventId])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorId     String?  @db.Uuid
+  action      String
+  entityType  String
+  entityId    String?
+  before      Json?
+  after       Json?
+  ipAddress   String?
+  userAgent   String?
+  actor       User?    @relation(fields: [actorId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+}
+
+model File {
+  id                 String              @id @default(uuid()) @db.Uuid
+  customerId          String?             @db.Uuid
+  storageKey          String              @unique
+  url                 String
+  mimeType            String
+  fileName            String
+  sizeBytes           Int
+  checksum            String?
+  metadata            Json                @default("{}")
+  customer            Customer?           @relation(fields: [customerId], references: [id])
+  messageAttachments  MessageAttachment[]
+  createdAt           DateTime            @default(now())
+}
+
+model Setting {
+  id          String   @id @default(uuid()) @db.Uuid
+  namespace   String
+  key         String
+  value       Json
+  sensitive   Boolean  @default(false)
+  updatedById String?  @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([namespace, key])
+}
