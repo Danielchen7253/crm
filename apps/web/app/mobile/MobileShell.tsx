@@ -904,7 +904,7 @@ function normalizedAttachments(message: Message): Attachment[] {
   const persisted = (message.attachments ?? []).map((attachment) => ({
     ...attachment,
     url: attachment.url ?? attachment.fileUrl ?? "",
-    type: attachment.type ?? attachmentKind(attachment.mimeType, attachment.fileName),
+    type: attachment.type ?? attachmentKind(attachment.mimeType, attachment.fileName, attachment.url ?? attachment.fileUrl),
   })).filter((attachment) => attachment.url);
   const raw = message.rawEvent as Record<string, unknown> | undefined;
   const candidates = collectAttachmentCandidates(raw);
@@ -938,18 +938,18 @@ function attachmentFromRaw(raw: Record<string, unknown>, id: string): Attachment
   if (!url) return null;
   const mimeType = stringValue(raw.mime_type) ?? stringValue(raw.mimeType) ?? stringValue(raw.content_type);
   const fileName = stringValue(raw.file_name) ?? stringValue(raw.filename) ?? stringValue(raw.name) ?? stringValue(raw.title);
-  return { id, url, fileName, mimeType, type: attachmentKind(mimeType, fileName) };
+  return { id, url, fileName, mimeType, type: attachmentKind(mimeType, fileName, url) };
 }
 
 function stringValue(value: unknown) {
   return typeof value === "string" && value ? value : null;
 }
 
-function attachmentKind(mimeType?: string | null, fileName?: string | null): Attachment["type"] {
-  const probe = `${mimeType ?? ""} ${fileName ?? ""}`.toLowerCase();
-  if (probe.includes("image") || /\.(png|jpe?g|gif|webp|heic)(\?|$)/.test(probe)) return "image";
-  if (probe.includes("audio") || /\.(mp3|m4a|wav|ogg|aac)(\?|$)/.test(probe)) return "audio";
-  if (probe.includes("video") || /\.(mp4|mov|webm|avi)(\?|$)/.test(probe)) return "video";
+function attachmentKind(mimeType?: string | null, fileName?: string | null, url?: string | null): Attachment["type"] {
+  const probe = `${mimeType ?? ""} ${fileName ?? ""} ${url ?? ""}`.toLowerCase();
+  if (probe.includes("image") || /\.(png|jpe?g|gif|webp|heic)([?#/]|$)/.test(probe)) return "image";
+  if (probe.includes("audio") || /\.(mp3|m4a|wav|ogg|opus|aac)([?#/]|$)/.test(probe)) return "audio";
+  if (probe.includes("video") || /\.(mp4|mov|webm|avi)([?#/]|$)/.test(probe)) return "video";
   return "file";
 }
 
