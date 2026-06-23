@@ -903,10 +903,13 @@ function messageText(message: Message) {
 function failureText(message: Message) {
   const reason = message.failedReason ?? message.providerErrorMessage ?? "Send failed";
   if (reason.includes("MESSENGER_PAGE_ACCESS_TOKEN")) {
-    return "Messenger is not connected. Add a valid Page Access Token, then retry.";
+    return "Messenger was not connected when this was sent. Retry after the customer messages again.";
   }
   if (reason.toLowerCase().includes("access token") && reason.toLowerCase().includes("expired")) {
     return "Messenger token expired. Reconnect Messenger, then retry.";
+  }
+  if (reason.includes("(#100)") && reason.toLowerCase().includes("recipient")) {
+    return "Old Messenger recipient was not linked. New replies now use the customer PSID.";
   }
   if (reason.includes("(#10)") || reason.toLowerCase().includes("messaging window") || reason.includes("消息发送时间窗")) {
     return "Outside Messenger 24-hour reply window. Wait for the customer to message again, then reply.";
