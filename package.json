@@ -13,7 +13,7 @@
   "scripts": {
     "dev": "concurrently \"pnpm --filter @coolfix-crm/api dev\" \"pnpm --filter @coolfix-crm/web dev\"",
     "mobile": "pnpm --filter @coolfix-crm/web dev",
-    "build": "pnpm --filter @coolfix-crm/shared build && pnpm --filter @coolfix-crm/api build && pnpm --filter @coolfix-crm/web build",
+    "build": "pnpm --filter @coolfix-crm/shared build && pnpm --filter @coolfix-crm/database prisma:generate && pnpm --filter @coolfix-crm/api build && pnpm --filter @coolfix-crm/web build",
     "lint": "pnpm --filter @coolfix-crm/shared lint && pnpm --filter @coolfix-crm/api lint && pnpm --filter @coolfix-crm/web lint",
     "prisma:generate": "pnpm --filter @coolfix-crm/database prisma:generate",
     "prisma:migrate": "pnpm --filter @coolfix-crm/database prisma:migrate",

@@ -431,21 +431,30 @@ model MessageAttachment {
 model Tag {
   id          String        @id @default(uuid()) @db.Uuid
   name        String        @unique
+  groupName   String?       @map("group_name")
   color       String?
   description String?
+  isActive    Boolean       @default(true) @map("is_active")
   customers   CustomerTag[]
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
+
+  @@index([groupName, isActive])
 }
 
 model CustomerTag {
+  id         String   @default(uuid()) @db.Uuid
   customerId String   @db.Uuid
   tagId      String   @db.Uuid
+  createdBy  String?  @map("created_by") @db.Uuid
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
   createdAt  DateTime @default(now())
 
   @@id([customerId, tagId])
+  @@unique([id])
+  @@index([tagId, createdAt])
+  @@index([createdBy])
 }
 
 model InternalNote {

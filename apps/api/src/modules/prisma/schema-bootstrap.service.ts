@@ -41,6 +41,14 @@ export class SchemaBootstrapService implements OnModuleInit {
       )`,
       `CREATE INDEX IF NOT EXISTS "SyncLog_channel_status_idx" ON "SyncLog"("channel", "status")`,
       `CREATE INDEX IF NOT EXISTS "SyncLog_channelAccountId_startedAt_idx" ON "SyncLog"("channelAccountId", "startedAt")`,
+      `ALTER TABLE "Tag" ADD COLUMN IF NOT EXISTS "group_name" TEXT`,
+      `ALTER TABLE "Tag" ADD COLUMN IF NOT EXISTS "is_active" BOOLEAN NOT NULL DEFAULT true`,
+      `CREATE INDEX IF NOT EXISTS "Tag_groupName_isActive_idx" ON "Tag"("group_name", "is_active")`,
+      `ALTER TABLE "CustomerTag" ADD COLUMN IF NOT EXISTS "id" UUID NOT NULL DEFAULT gen_random_uuid()`,
+      `ALTER TABLE "CustomerTag" ADD COLUMN IF NOT EXISTS "created_by" UUID`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS "CustomerTag_id_key" ON "CustomerTag"("id")`,
+      `CREATE INDEX IF NOT EXISTS "CustomerTag_tagId_createdAt_idx" ON "CustomerTag"("tagId", "createdAt")`,
+      `CREATE INDEX IF NOT EXISTS "CustomerTag_createdBy_idx" ON "CustomerTag"("created_by")`,
     ];
 
     for (const statement of statements) {

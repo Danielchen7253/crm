@@ -5,6 +5,7 @@ import type { InboundAttachment, NormalizedInboundMessage } from "@coolfix-crm/s
 import { AiService } from "../ai/ai.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { RealtimeGateway } from "../realtime/realtime.gateway";
+import { TagsService } from "../tags/tags.service";
 
 @Injectable()
 export class IngestService {
@@ -12,6 +13,7 @@ export class IngestService {
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeGateway,
     private readonly ai: AiService,
+    private readonly tags: TagsService,
   ) {}
 
   async ingestInbound(input: NormalizedInboundMessage) {
@@ -105,6 +107,16 @@ export class IngestService {
         data: { processed: true, processedAt: new Date() },
       }),
     ]);
+
+    void this.tags
+      .applyAutomaticTags({
+        customerId: customer.id,
+        channel,
+        text: input.text,
+      })
+      .catch((error) => {
+        console.error("Automatic tagging failed", error);
+      });
 
     this.realtime.emitInboxEvent("message.created", {
       customerId: customer.id,

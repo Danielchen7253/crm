@@ -15,6 +15,7 @@ import { PrismaModule } from "./modules/prisma/prisma.module";
 import { QuickRepliesModule } from "./modules/quick-replies/quick-replies.module";
 import { RealtimeModule } from "./modules/realtime/realtime.module";
 import { SettingsModule } from "./modules/settings/settings.module";
+import { TagsModule } from "./modules/tags/tags.module";
 import { WebhooksModule } from "./modules/webhooks/webhooks.module";
 
 @Module({
@@ -33,6 +34,7 @@ import { WebhooksModule } from "./modules/webhooks/webhooks.module";
     AiModule,
     CampaignsModule,
     QuickRepliesModule,
+    TagsModule,
     SettingsModule,
     AdminModule,
   ],

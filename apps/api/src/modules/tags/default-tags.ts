@@ -1,0 +1,123 @@
+export type DefaultTag = {
+  name: string;
+  groupName: string;
+  color: string;
+  description?: string;
+};
+
+const groupColors: Record<string, string> = {
+  "Customer Identity": "#0f172a",
+  Industry: "#2563eb",
+  Occupation: "#7c3aed",
+  "Product Interest": "#0f766e",
+  "Product Purchase": "#16a34a",
+  "Service Need": "#dc2626",
+  "Customer Level": "#f59e0b",
+  Region: "#64748b",
+  Language: "#0891b2",
+  Marketing: "#db2777",
+};
+
+const tagGroups: Record<string, string[]> = {
+  "Customer Identity": [
+    "Customer",
+    "Supplier",
+    "Vendor",
+    "Employee",
+    "Contractor",
+    "Partner",
+    "Distributor",
+    "Manufacturer",
+  ],
+  Industry: [
+    "HVAC",
+    "Refrigeration",
+    "Restaurant",
+    "Supermarket",
+    "Convenience Store",
+    "Food Truck",
+    "Cold Storage",
+    "Property Management",
+    "Apartment",
+    "Hotel",
+    "Hospital",
+    "School",
+    "Government",
+    "Factory",
+    "Warehouse",
+  ],
+  Occupation: [
+    "HVAC Technician",
+    "Refrigeration Technician",
+    "Electrician",
+    "Appliance Repair",
+    "Restaurant Owner",
+    "Store Owner",
+    "Facility Manager",
+    "Maintenance Manager",
+    "Purchasing Manager",
+    "Operations Manager",
+    "Sales Manager",
+  ],
+  "Product Interest": [
+    "Capacitor",
+    "Contactor",
+    "Transformer",
+    "Potential Relay",
+    "Hard Start Kit",
+    "Disconnect Box",
+    "Fuse",
+    "Thermostat",
+    "Compressor",
+    "Dry Filter",
+    "Fan Motor",
+    "Defrost Heater",
+    "Door Gasket",
+    "Refrigerant",
+    "Tool",
+  ],
+  "Product Purchase": [
+    "Bought Capacitor",
+    "Bought Contactor",
+    "Bought Transformer",
+    "Bought Thermostat",
+    "Bought Compressor",
+    "Bought Door Gasket",
+    "Bought Refrigerant",
+  ],
+  "Service Need": [
+    "HVAC Repair",
+    "Refrigeration Repair",
+    "Walk-in Cooler",
+    "Walk-in Freezer",
+    "Ice Machine",
+    "Reach-in Cooler",
+    "Reach-in Freezer",
+    "Emergency Repair",
+    "Installation",
+    "Preventive Maintenance",
+  ],
+  "Customer Level": ["VIP", "Wholesale", "Retail", "High Value", "Repeat Customer", "Inactive", "New Customer", "Lost Customer"],
+  Region: ["USA", "Texas", "Houston", "Dallas", "Austin", "San Antonio", "Florida", "California", "New York"],
+  Language: ["English", "Spanish", "Chinese", "Vietnamese"],
+  Marketing: [
+    "Newsletter",
+    "Promotion",
+    "Coupon",
+    "Trade Show",
+    "Facebook Lead",
+    "Messenger Lead",
+    "WhatsApp Lead",
+    "Website Lead",
+    "Google Lead",
+    "Referral Lead",
+  ],
+};
+
+export const DEFAULT_TAGS: DefaultTag[] = Object.entries(tagGroups).flatMap(([groupName, names]) =>
+  names.map((name) => ({
+    name,
+    groupName,
+    color: groupColors[groupName] ?? "#334155",
+  })),
+);

@@ -1,23 +1,24 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import { TagsService } from "../tags/tags.service";
 
 @Controller("customers")
 export class CustomersController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tags: TagsService,
+  ) {}
 
   @Get()
-  list(@Query("q") q?: string) {
+  list(@Query("q") q?: string, @Query("tagAll") tagAll?: string, @Query("tagAny") tagAny?: string, @Query("tagNone") tagNone?: string) {
+    const tagWhere = this.tags.customerWhereForFilter({
+      q,
+      all: this.splitTags(tagAll),
+      any: this.splitTags(tagAny),
+      none: this.splitTags(tagNone),
+    });
     return this.prisma.customer.findMany({
-      where: q
-        ? {
-            deletedAt: null,
-            OR: [
-              { displayName: { contains: q, mode: "insensitive" } },
-              { primaryPhone: { contains: q } },
-              { primaryEmail: { contains: q, mode: "insensitive" } },
-            ],
-          }
-        : { deletedAt: null },
+      where: tagWhere,
       include: {
         tags: { include: { tag: true } },
         identities: true,
@@ -80,5 +81,14 @@ export class CustomersController {
       }),
     ]);
     return this.detail(targetCustomerId);
+  }
+
+  private splitTags(value?: string) {
+    return value
+      ? value
+          .split(",")
+          .map((tag) => tag.trim())
+          .filter(Boolean)
+      : [];
   }
 }
