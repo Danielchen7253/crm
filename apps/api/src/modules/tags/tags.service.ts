@@ -22,6 +22,7 @@ export class TagsService implements OnModuleInit {
   }
 
   async seedDefaults() {
+    await this.ensureTagSchema();
     const results = [];
     for (const tag of DEFAULT_TAGS) {
       results.push(
@@ -36,6 +37,7 @@ export class TagsService implements OnModuleInit {
   }
 
   async list(params: { q?: string; group?: string; active?: string }) {
+    await this.ensureTagSchema();
     const isActive = params.active === undefined ? undefined : params.active !== "false";
     return this.prisma.tag.findMany({
       where: {
@@ -57,6 +59,7 @@ export class TagsService implements OnModuleInit {
   }
 
   async upsertByName(input: { name: string; groupName?: string; color?: string; description?: string; isActive?: boolean }) {
+    await this.ensureTagSchema();
     const name = input.name.trim();
     return this.prisma.tag.upsert({
       where: { name },
@@ -270,5 +273,12 @@ export class TagsService implements OnModuleInit {
       ids.add(tag.id);
     }
     return [...ids];
+  }
+
+  private async ensureTagSchema() {
+    await this.prisma.$executeRawUnsafe(`ALTER TABLE "Tag" ADD COLUMN IF NOT EXISTS "group_name" TEXT`);
+    await this.prisma.$executeRawUnsafe(`ALTER TABLE "Tag" ADD COLUMN IF NOT EXISTS "is_active" BOOLEAN NOT NULL DEFAULT true`);
+    await this.prisma.$executeRawUnsafe(`ALTER TABLE "CustomerTag" ADD COLUMN IF NOT EXISTS "id" UUID NOT NULL DEFAULT gen_random_uuid()`);
+    await this.prisma.$executeRawUnsafe(`ALTER TABLE "CustomerTag" ADD COLUMN IF NOT EXISTS "created_by" UUID`);
   }
 }
