@@ -76,7 +76,7 @@ export class IngestService {
       this.prisma.customer.update({
         where: { id: customer.id },
         data: {
-          displayName: customer.displayName ?? input.senderName,
+          displayName: this.mergedDisplayName(customer.displayName, input.senderName, input.phone, input.email),
           avatarUrl: customer.avatarUrl ?? input.senderAvatarUrl,
           primaryPhone: customer.primaryPhone ?? input.phone,
           primaryEmail: customer.primaryEmail ?? input.email,
@@ -231,5 +231,26 @@ export class IngestService {
     const digits = phone.replace(/\D/g, "");
     if (!digits) return undefined;
     return digits.length === 10 ? `1${digits}` : digits;
+  }
+
+  private mergedDisplayName(current?: string | null, incoming?: string, phone?: string, email?: string) {
+    if (!incoming?.trim()) return current ?? undefined;
+    if (!current?.trim()) return incoming.trim();
+
+    const normalizedCurrent = current.trim().toLowerCase();
+    const normalizedPhone = this.normalizePhone(phone);
+    const normalizedEmail = email?.trim().toLowerCase();
+    const placeholders = [
+      "new customer",
+      "facebook 用户",
+      normalizedPhone,
+      normalizedEmail,
+      normalizedPhone ? `sms +${normalizedPhone}` : undefined,
+      normalizedPhone ? `phone +${normalizedPhone}` : undefined,
+      normalizedPhone ? `whatsapp +${normalizedPhone}` : undefined,
+    ].filter(Boolean);
+
+    if (placeholders.includes(normalizedCurrent)) return incoming.trim();
+    return current;
   }
 }
