@@ -729,6 +729,10 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
     });
   }, [aiSuggestion?.id, aiSuggestion?.suggestedReply]);
 
+  useEffect(() => {
+    resizeDraftBox();
+  }, [draft]);
+
   function submitDraft() {
     const text = draft.trim();
     if (!text || sendMutation.isPending) return;
@@ -745,6 +749,20 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
     setDraft(aiSuggestion.suggestedReply);
     setActiveAiLogId(aiSuggestion.id ?? null);
     requestAnimationFrame(() => textareaRef.current?.focus());
+  }
+
+  function resizeDraftBox() {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const styles = window.getComputedStyle(textarea);
+    const lineHeight = Number.parseFloat(styles.lineHeight) || 26;
+    const verticalPadding = Number.parseFloat(styles.paddingTop) + Number.parseFloat(styles.paddingBottom);
+    const maxHeight = Math.ceil(lineHeight * 5 + verticalPadding);
+    const minHeight = Math.ceil(lineHeight * 2 + verticalPadding);
+    textarea.style.height = "auto";
+    const nextHeight = Math.min(Math.max(textarea.scrollHeight, minHeight), maxHeight);
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {

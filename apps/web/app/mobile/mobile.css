@@ -575,7 +575,7 @@ body {
   right: 0;
   bottom: 0;
   left: 0;
-  min-height: calc(104px + env(safe-area-inset-bottom));
+  min-height: calc(142px + env(safe-area-inset-bottom));
   max-height: calc(58dvh - env(safe-area-inset-bottom));
   background: #fff;
   border-top: 1px solid var(--mobile-line);
@@ -599,7 +599,7 @@ body {
 }
 
 .mobileToolBtn {
-  min-height: 40px;
+  min-height: 46px;
   flex: 1;
   border: 1px solid var(--mobile-line);
   border-radius: 8px;
@@ -609,13 +609,14 @@ body {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  font-size: 15px;
   font-weight: 800;
   white-space: nowrap;
 }
 
 .mobileToolBtn span {
   color: var(--mobile-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -630,8 +631,9 @@ body {
 }
 
 .mobileComposer {
-  gap: 8px;
-  padding: 8px 10px 10px;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 10px 10px 12px;
   width: 100%;
   max-width: 100vw;
   box-sizing: border-box;
@@ -640,23 +642,30 @@ body {
 .mobileComposer textarea {
   flex: 1;
   min-width: 0;
-  min-height: 42px;
-  max-height: 118px;
-  font-size: 16px;
+  min-height: 72px;
+  max-height: 154px;
+  font-size: 18px;
+  line-height: 26px;
   resize: none;
-  overflow-y: auto;
+  overflow-y: hidden;
   border: 1px solid var(--mobile-line);
-  border-radius: 8px;
-  padding: 10px;
+  border-radius: 10px;
+  padding: 10px 12px;
   outline: 0;
 }
 
 .mobileSendBtn {
-  width: 44px;
-  height: 44px;
-  border-radius: 22px;
+  width: 60px;
+  height: 60px;
+  min-width: 60px;
+  border-radius: 30px;
   background: var(--mobile-text);
   color: #fff;
+}
+
+.mobileSendBtn svg {
+  width: 24px;
+  height: 24px;
 }
 
 .mobileSendBtn:disabled {
