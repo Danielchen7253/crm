@@ -315,6 +315,9 @@ export class LegacyMigrationController {
       stats.created.calls += 1;
     }
 
+    await this.repairVoiceMessageChannels();
+    await this.removeCodexTestData();
+
     for (const item of [...followUps, ...leads]) {
       const customerId = item.customer_id ? customerIdMap.get(item.customer_id) : undefined;
       if (!customerId) {
@@ -394,9 +397,9 @@ export class LegacyMigrationController {
     if (!value) return undefined;
     const normalized = value.toLowerCase().replace(/[-\s]/g, "_");
     if (Object.values(Channel).includes(normalized as Channel)) return normalized as Channel;
+    if (normalized.includes("voice") || normalized.includes("call")) return Channel.phone;
     if (normalized.includes("whatsapp") || normalized === "wa") return Channel.whatsapp;
     if (normalized.includes("twilio") || normalized.includes("sms") || normalized.includes("text")) return Channel.sms;
-    if (normalized.includes("voice") || normalized.includes("call")) return Channel.phone;
     if (normalized.includes("website") || normalized.includes("chat")) return Channel.website_chat;
     if (normalized.includes("instagram")) return Channel.instagram;
     if (normalized.includes("facebook") || normalized.includes("messenger") || normalized.includes("meta")) return Channel.messenger;
@@ -432,5 +435,46 @@ export class LegacyMigrationController {
 
   private json(value: unknown) {
     return JSON.parse(JSON.stringify(value ?? {})) as Prisma.InputJsonValue;
+  }
+
+  private async repairVoiceMessageChannels() {
+    await this.prisma.message.updateMany({
+      where: { provider: "twilio_voice" },
+      data: { channel: Channel.phone },
+    });
+    await this.prisma.conversation.updateMany({
+      where: { externalThreadId: { startsWith: "legacy:twilio_voice:" } },
+      data: { channel: Channel.phone },
+    });
+  }
+
+  private async removeCodexTestData() {
+    const testMessages = await this.prisma.message.findMany({
+      where: {
+        OR: [
+          { text: { contains: "CRM inbound test" } },
+          { text: { contains: "CRM WhatsApp inbound test" } },
+          { text: { contains: "CoolFix CRM WhatsApp live send path test" } },
+          { text: { contains: "CoolFix CRM SMS live send test" } },
+        ],
+      },
+      select: { conversationId: true, customerId: true },
+    });
+    const conversationIds = [...new Set(testMessages.map((message) => message.conversationId))];
+    const customerIds = [...new Set(testMessages.map((message) => message.customerId))];
+    if (conversationIds.length) {
+      await this.prisma.conversation.deleteMany({ where: { id: { in: conversationIds } } });
+    }
+    for (const customerId of customerIds) {
+      const remaining = await this.prisma.conversation.count({ where: { customerId } });
+      const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
+      if (remaining === 0 && !this.hasLegacyId(customer?.metadata)) {
+        await this.prisma.customer.delete({ where: { id: customerId } }).catch(() => undefined);
+      }
+    }
+  }
+
+  private hasLegacyId(metadata: unknown) {
+    return Boolean(metadata && typeof metadata === "object" && !Array.isArray(metadata) && "legacyId" in metadata);
   }
 }
