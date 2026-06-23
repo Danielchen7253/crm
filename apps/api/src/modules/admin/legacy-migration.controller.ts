@@ -567,6 +567,19 @@ export class LegacyMigrationController {
         await this.prisma.customer.delete({ where: { id: customerId } }).catch(() => undefined);
       }
     }
+
+    const fakePhones = ["17135550123", "17135550124"];
+    const fakeCustomers = await this.prisma.customer.findMany({
+      where: { primaryPhone: { in: fakePhones } },
+      select: { id: true },
+    });
+    const fakeCustomerIds = fakeCustomers.map((customer) => customer.id);
+    if (fakeCustomerIds.length) {
+      await this.prisma.conversation.deleteMany({ where: { customerId: { in: fakeCustomerIds } } });
+      await this.prisma.callSession.deleteMany({ where: { customerId: { in: fakeCustomerIds } } });
+      await this.prisma.customerPhone.deleteMany({ where: { customerId: { in: fakeCustomerIds } } });
+      await this.prisma.customer.deleteMany({ where: { id: { in: fakeCustomerIds }, metadata: { equals: {} } } });
+    }
   }
 
   private hasLegacyId(metadata: unknown) {
