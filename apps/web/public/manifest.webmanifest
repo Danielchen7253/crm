@@ -1,0 +1,19 @@
+{
+  "name": "CoolFix CRM Mobile",
+  "short_name": "CRM",
+  "description": "Mobile web inbox for CoolFix CRM",
+  "start_url": "/mobile/inbox",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f172a",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/mobile-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
