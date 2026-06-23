@@ -210,6 +210,7 @@ export class LegacyMigrationController {
         where: {
           OR: [
             { fallbackDedupeKey },
+            { rawEvent: { path: ["legacyId"], equals: legacy.id } },
             legacy.provider_message_id
               ? { channel: this.toChannel(legacy.provider) ?? Channel.messenger, externalMessageId: legacy.provider_message_id }
               : { id: "00000000-0000-0000-0000-000000000000" },
@@ -438,14 +439,67 @@ export class LegacyMigrationController {
   }
 
   private async repairVoiceMessageChannels() {
-    await this.prisma.message.updateMany({
-      where: { provider: "twilio_voice" },
-      data: { channel: Channel.phone },
-    });
-    await this.prisma.conversation.updateMany({
+    const conversations = await this.prisma.conversation.findMany({
       where: { externalThreadId: { startsWith: "legacy:twilio_voice:" } },
-      data: { channel: Channel.phone },
+      orderBy: { createdAt: "asc" },
     });
+    const byThread = new Map<string, typeof conversations>();
+    for (const conversation of conversations) {
+      const key = conversation.externalThreadId ?? conversation.id;
+      byThread.set(key, [...(byThread.get(key) ?? []), conversation]);
+    }
+
+    for (const group of byThread.values()) {
+      const target = group.find((conversation) => conversation.channel === Channel.phone) ?? group[0];
+      if (target.channel !== Channel.phone) {
+        await this.prisma.conversation.update({ where: { id: target.id }, data: { channel: Channel.phone } });
+      }
+
+      for (const duplicate of group) {
+        if (duplicate.id === target.id) continue;
+        await this.prisma.message.updateMany({
+          where: { conversationId: duplicate.id },
+          data: { conversationId: target.id, channel: Channel.phone },
+        });
+        await this.prisma.aiReplyLog.updateMany({
+          where: { conversationId: duplicate.id },
+          data: { conversationId: target.id },
+        });
+        await this.prisma.internalNote.updateMany({
+          where: { conversationId: duplicate.id },
+          data: { conversationId: target.id },
+        });
+        await this.prisma.callSession.updateMany({
+          where: { conversationId: duplicate.id },
+          data: { conversationId: target.id },
+        });
+        await this.prisma.conversation.delete({ where: { id: duplicate.id } });
+      }
+    }
+
+    await this.prisma.message.updateMany({ where: { provider: "twilio_voice" }, data: { channel: Channel.phone } });
+    await this.removeDuplicateLegacyMessages();
+  }
+
+  private async removeDuplicateLegacyMessages() {
+    const legacyMessages = await this.prisma.message.findMany({
+      where: { rawEvent: { path: ["legacyId"], not: Prisma.DbNull } },
+      orderBy: { createdAt: "asc" },
+    });
+    const seen = new Set<string>();
+    for (const message of legacyMessages) {
+      const raw = message.rawEvent;
+      const legacyId =
+        raw && typeof raw === "object" && !Array.isArray(raw) && "legacyId" in raw
+          ? String((raw as Record<string, unknown>).legacyId)
+          : undefined;
+      if (!legacyId) continue;
+      if (!seen.has(legacyId)) {
+        seen.add(legacyId);
+        continue;
+      }
+      await this.prisma.message.delete({ where: { id: message.id } });
+    }
   }
 
   private async removeCodexTestData() {
