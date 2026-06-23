@@ -64,6 +64,7 @@ type Customer = {
   identities?: { id: string; channel: Channel; externalId: string; phone?: string | null; email?: string | null; displayName?: string | null }[];
   tags?: { tag: { name: string; color?: string | null } }[];
   notes?: { id: string; body: string; createdAt: string }[];
+  conversations?: { id: string; channel: Channel; lastMessageAt?: string | null }[];
 };
 
 type Conversation = {
@@ -330,6 +331,31 @@ export default function MobileShell({ mode }: { mode: Mode }) {
     );
   }
 
+  if (mode === "conversation" && !conversation) {
+    return (
+      <main className="mobileChat">
+        <header className="mobileChatHeader">
+          <Link className="mobileBackBtn" href="/mobile/inbox"><ChevronLeft size={22} /></Link>
+          <div className="mobileAvatar phone">C</div>
+          <div className="mobileChatInfo">
+            <div className="mobileCustomerName">Loading conversation</div>
+            <div className="mobileMeta">Syncing messages...</div>
+          </div>
+        </header>
+        <section className="mobileMessages">
+          <div className="mobileEmptyChat">Loading customer chat...</div>
+        </section>
+        <section className="mobileComposerWrap">
+          <div className="mobileComposer">
+            <button className="mobileFileBtn" title="Upload file"><Paperclip size={20} /></button>
+            <textarea disabled placeholder="Loading..." />
+            <button className="mobileSendBtn" disabled><Send size={19} /></button>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   if (mode === "conversation" && conversation) {
     return (
       <main className="mobileChat">
@@ -524,8 +550,10 @@ function ConversationCard({ conversation }: { conversation: Conversation }) {
 }
 
 function CustomerCard({ customer }: { customer: Customer }) {
+  const latestConversation = customer.conversations?.[0];
+  const href = latestConversation ? `/mobile/conversations/${latestConversation.id}` : `/mobile/customers/${customer.id}`;
   return (
-    <Link className="mobileCard" href={`/mobile/customers/${customer.id}`}>
+    <Link className="mobileCard" href={href}>
       <Avatar customer={customer} channel={customer.source ?? "phone"} />
       <div className="mobileCardBody">
         <div className="mobileRow">

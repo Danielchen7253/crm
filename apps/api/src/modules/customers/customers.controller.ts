@@ -18,7 +18,15 @@ export class CustomersController {
             ],
           }
         : { deletedAt: null },
-      include: { tags: { include: { tag: true } }, identities: true },
+      include: {
+        tags: { include: { tag: true } },
+        identities: true,
+        conversations: {
+          orderBy: [{ lastMessageAt: "desc" }, { createdAt: "desc" }],
+          take: 1,
+          select: { id: true, channel: true, lastMessageAt: true },
+        },
+      },
       orderBy: [{ lastMessageAt: "desc" }, { createdAt: "desc" }],
       take: 200,
     });

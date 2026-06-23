@@ -10,12 +10,15 @@
 }
 
 .mobileApp {
+  width: 100%;
+  max-width: 100vw;
   min-height: 100dvh;
   background: var(--mobile-bg);
   color: var(--mobile-text);
   display: flex;
   flex-direction: column;
   font-family: Arial, Helvetica, sans-serif;
+  overflow-x: hidden;
 }
 
 .mobileTop {
@@ -255,12 +258,14 @@
   position: fixed;
   inset: 0;
   width: 100%;
+  max-width: 100vw;
   height: 100dvh;
   min-height: 100dvh;
   background: var(--mobile-bg);
   display: grid;
   grid-template-rows: auto 1fr auto;
   overflow: hidden;
+  overscroll-behavior: contain;
 }
 
 .mobileChatHeader {
@@ -272,6 +277,7 @@
   padding: max(10px, env(safe-area-inset-top)) 10px 8px;
   background: rgba(255, 255, 255, 0.97);
   border-bottom: 1px solid var(--mobile-line);
+  min-width: 0;
 }
 
 .mobileChatInfo {
@@ -282,17 +288,30 @@
 .mobileMessages {
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 12px 10px 16px;
   -webkit-overflow-scrolling: touch;
 }
 
 .mobileBubble {
   max-width: 84%;
+  min-width: 0;
   border-radius: 8px;
   padding: 9px 10px;
   margin-bottom: 8px;
   background: #fff;
   border: 1px solid var(--mobile-line);
+}
+
+.mobileEmptyChat {
+  margin: 24px auto;
+  width: fit-content;
+  max-width: 90%;
+  border: 1px solid var(--mobile-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--mobile-muted);
+  padding: 12px 14px;
 }
 
 .mobileBubble.outbound {
@@ -375,6 +394,7 @@
 
 .mobileComposer textarea {
   flex: 1;
+  min-width: 0;
   min-height: 42px;
   max-height: 110px;
   resize: none;
