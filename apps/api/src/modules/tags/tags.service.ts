@@ -272,7 +272,6 @@ export class TagsService {
     await this.prisma.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
     await this.prisma.$executeRawUnsafe(`ALTER TABLE "Tag" ADD COLUMN IF NOT EXISTS "group_name" TEXT`);
     await this.prisma.$executeRawUnsafe(`ALTER TABLE "Tag" ADD COLUMN IF NOT EXISTS "is_active" BOOLEAN NOT NULL DEFAULT true`);
-    await this.prisma.$executeRawUnsafe(`ALTER TABLE "CustomerTag" ADD COLUMN IF NOT EXISTS "id" UUID NOT NULL DEFAULT gen_random_uuid()`);
     await this.prisma.$executeRawUnsafe(`ALTER TABLE "CustomerTag" ADD COLUMN IF NOT EXISTS "created_by" UUID`);
   }
 }

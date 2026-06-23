@@ -443,7 +443,6 @@ model Tag {
 }
 
 model CustomerTag {
-  id         String   @default(uuid()) @db.Uuid
   customerId String   @db.Uuid
   tagId      String   @db.Uuid
   createdBy  String?  @map("created_by") @db.Uuid
@@ -452,7 +451,6 @@ model CustomerTag {
   createdAt  DateTime @default(now())
 
   @@id([customerId, tagId])
-  @@unique([id])
   @@index([tagId, createdAt])
   @@index([createdBy])
 }
