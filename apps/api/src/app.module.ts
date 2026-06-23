@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { AppController } from "./app.controller";
+import { AdminModule } from "./modules/admin/admin.module";
 import { AiModule } from "./modules/ai/ai.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { CallsModule } from "./modules/calls/calls.module";
@@ -31,6 +32,7 @@ import { WebhooksModule } from "./modules/webhooks/webhooks.module";
     CampaignsModule,
     QuickRepliesModule,
     SettingsModule,
+    AdminModule,
   ],
   controllers: [AppController],
 })
