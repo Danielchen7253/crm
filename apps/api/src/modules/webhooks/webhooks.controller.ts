@@ -22,6 +22,34 @@ export class WebhooksController {
     return "invalid";
   }
 
+  @Get("whatsapp/health")
+  async whatsappHealth() {
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const token = process.env.WHATSAPP_ACCESS_TOKEN ?? process.env.META_ACCESS_TOKEN;
+    const result: Record<string, unknown> = {
+      webhookUrl: "/api/webhooks/whatsapp",
+      verifyTokenConfigured: Boolean(process.env.META_VERIFY_TOKEN),
+      phoneNumberIdConfigured: Boolean(phoneNumberId),
+      accessTokenConfigured: Boolean(token),
+      graphOk: false,
+    };
+
+    if (!phoneNumberId || !token) return result;
+
+    const url = new URL(`https://graph.facebook.com/v25.0/${phoneNumberId}`);
+    url.searchParams.set("fields", "id,display_phone_number,verified_name,quality_rating,platform_type,code_verification_status");
+    url.searchParams.set("access_token", token);
+
+    const response = await fetch(url);
+    const raw = await response.json().catch(() => ({}));
+    result.graphOk = response.ok;
+    result.phoneNumber = response.ok ? raw : undefined;
+    result.error = response.ok ? undefined : raw?.error?.message ?? response.statusText;
+    result.errorCode = response.ok ? undefined : raw?.error?.code;
+    result.errorSubcode = response.ok ? undefined : raw?.error?.error_subcode;
+    return result;
+  }
+
   @Post("website-chat")
   ingestWebsiteChat(@Body() body: any) {
     return this.ingest.ingestInbound({
@@ -139,6 +167,7 @@ export class WebhooksController {
 
       for (const change of entry.changes ?? []) {
         for (const waMessage of change.value?.messages ?? []) {
+          const contact = this.whatsAppContact(change.value?.contacts, waMessage.from);
           normalized.push({
             channel: "whatsapp",
             provider: "meta",
@@ -146,7 +175,7 @@ export class WebhooksController {
             externalThreadId: waMessage.from,
             externalMessageId: waMessage.id,
             senderExternalId: waMessage.from,
-            senderName: change.value?.contacts?.[0]?.profile?.name,
+            senderName: contact?.profile?.name,
             phone: waMessage.from,
             text: this.whatsAppText(waMessage),
             timestamp: waMessage.timestamp ? new Date(Number(waMessage.timestamp) * 1000).toISOString() : undefined,
@@ -160,13 +189,18 @@ export class WebhooksController {
     return normalized;
   }
 
+  private whatsAppContact(contacts: any[] | undefined, from?: string) {
+    if (!contacts?.length) return undefined;
+    return contacts.find((contact) => contact.wa_id === from) ?? contacts[0];
+  }
+
   private normalizeWhatsAppAttachments(message: any) {
     const attachment = message.image ?? message.audio ?? message.video ?? message.document;
     if (!attachment) return [];
     return [
       {
         type: message.type === "document" ? "file" : message.type,
-        url: attachment.link ?? attachment.id,
+        url: attachment.link ?? `whatsapp-media:${attachment.id}`,
         mimeType: attachment.mime_type,
         fileName: attachment.filename,
       },
