@@ -269,6 +269,7 @@
 }
 
 .mobileChatHeader {
+  grid-row: 1;
   position: sticky;
   top: 0;
   z-index: 10;
@@ -281,6 +282,7 @@
   width: 100%;
   max-width: 100vw;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .mobileChatInfo {
@@ -289,6 +291,7 @@
 }
 
 .mobileMessages {
+  grid-row: 2;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -297,6 +300,8 @@
   overflow-x: hidden;
   padding: 12px 10px 16px;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
   width: 100%;
   max-width: 100vw;
 }
@@ -403,6 +408,7 @@
 }
 
 .mobileComposerWrap {
+  grid-row: 3;
   background: #fff;
   border-top: 1px solid var(--mobile-line);
   padding-bottom: env(safe-area-inset-bottom);
@@ -410,6 +416,7 @@
   width: 100%;
   max-width: 100vw;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .mobileQuickReplies {

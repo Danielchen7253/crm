@@ -20,7 +20,7 @@ import {
   Users,
   Video,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import "./mobile.css";
 
@@ -138,6 +138,7 @@ export default function MobileShell({ mode }: { mode: Mode }) {
   const [taskDueAt, setTaskDueAt] = useState("");
   const [loading, setLoading] = useState(false);
   const [offline, setOffline] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const conversationId = mode === "conversation" ? params.id : undefined;
   const customerId = mode === "customer" ? params.id : undefined;
@@ -249,6 +250,11 @@ export default function MobileShell({ mode }: { mode: Mode }) {
     if (conversationId) localStorage.setItem(`${DRAFT_PREFIX}${conversationId}`, draft);
   }, [conversationId, draft]);
 
+  useEffect(() => {
+    if (mode !== "conversation") return;
+    messagesEndRef.current?.scrollIntoView({ block: "end" });
+  }, [mode, conversation?.id, conversation?.messages?.length]);
+
   async function login(provider?: "google" | "facebook") {
     const value = provider ? `${provider}@coolfixpro.com` : loginValue.trim();
     if (!value) return;
@@ -357,6 +363,10 @@ export default function MobileShell({ mode }: { mode: Mode }) {
   }
 
   if (mode === "conversation" && conversation) {
+    const orderedMessages = [...(conversation.messages ?? [])].sort(
+      (left, right) => new Date(left.sentAt).getTime() - new Date(right.sentAt).getTime(),
+    );
+
     return (
       <main className="mobileChat">
         <header className="mobileChatHeader">
@@ -369,13 +379,14 @@ export default function MobileShell({ mode }: { mode: Mode }) {
           <Link className="mobileIconBtn" href={`/mobile/customers/${conversation.customer.id}`}><UserRound size={19} /></Link>
         </header>
         <section className="mobileMessages">
-          {(conversation.messages ?? []).map((message) => (
+          {orderedMessages.map((message) => (
             <article key={message.id} className={`mobileBubble ${message.direction}`}>
               {message.text && <p>{message.text}</p>}
               {message.attachments?.map((attachment) => <AttachmentPreview attachment={attachment} key={attachment.id} />)}
               <small>{formatTime(message.sentAt)} · {message.status}{message.failedReason ? ` · ${message.failedReason}` : ""}</small>
             </article>
           ))}
+          <div ref={messagesEndRef} />
         </section>
         <section className="mobileComposerWrap">
           {aiSuggestion?.suggestedReply && (
