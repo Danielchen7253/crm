@@ -12,8 +12,11 @@
   ],
   "scripts": {
     "dev": "concurrently \"pnpm --filter @coolfix-crm/api dev\" \"pnpm --filter @coolfix-crm/web dev\"",
-    "build": "pnpm --filter @coolfix-crm/shared build && pnpm --filter @coolfix-crm/api build && pnpm --filter @coolfix-crm/web build",
-    "lint": "pnpm --filter @coolfix-crm/shared lint && pnpm --filter @coolfix-crm/api lint && pnpm --filter @coolfix-crm/web lint",
+    "mobile": "pnpm --filter @coolfix-crm/mobile start",
+    "mobile:android": "pnpm --filter @coolfix-crm/mobile android",
+    "mobile:ios": "pnpm --filter @coolfix-crm/mobile ios",
+    "build": "pnpm --filter @coolfix-crm/shared build && pnpm --filter @coolfix-crm/api build && pnpm --filter @coolfix-crm/web build && pnpm --filter @coolfix-crm/mobile typecheck",
+    "lint": "pnpm --filter @coolfix-crm/shared lint && pnpm --filter @coolfix-crm/api lint && pnpm --filter @coolfix-crm/web lint && pnpm --filter @coolfix-crm/mobile typecheck",
     "prisma:generate": "pnpm --filter @coolfix-crm/database prisma:generate",
     "prisma:migrate": "pnpm --filter @coolfix-crm/database prisma:migrate",
     "seed": "pnpm --filter @coolfix-crm/database seed",
