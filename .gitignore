@@ -11,3 +11,4 @@ coverage
 uploads
 *.log
 *.tsbuildinfo
+.expo
