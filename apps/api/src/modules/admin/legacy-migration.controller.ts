@@ -81,10 +81,13 @@ export class LegacyMigrationController {
       throw new ForbiddenException("Invalid migration secret");
     }
 
+    let stage = "env";
+    try {
     const legacyUrl = process.env.LEGACY_SUPABASE_URL;
     const legacyKey = process.env.LEGACY_SUPABASE_SERVICE_ROLE_KEY;
     if (!legacyUrl || !legacyKey) throw new Error("Missing legacy Supabase env vars");
 
+    stage = "admin";
     const admin = await this.prisma.user.findFirst({ orderBy: { createdAt: "asc" } });
     if (!admin) throw new Error("No admin user found for internal notes");
 
@@ -115,6 +118,7 @@ export class LegacyMigrationController {
       },
     };
 
+    stage = "fetch legacy";
     const customers = await this.fetchAll<LegacyCustomer>(legacyUrl, legacyKey, "customers");
     const identities = await this.fetchAll<LegacyIdentity>(legacyUrl, legacyKey, "customer_identities");
     const messages = await this.fetchAll<LegacyMessage>(legacyUrl, legacyKey, "messages");
@@ -129,6 +133,7 @@ export class LegacyMigrationController {
     stats.legacy.followUps = followUps.length;
     stats.legacy.leads = leads.length;
 
+    stage = "customers";
     const customerIdMap = new Map<string, string>();
     for (const legacy of customers) {
       const existing = await this.prisma.customer.findFirst({
@@ -165,6 +170,7 @@ export class LegacyMigrationController {
       stats.created.customers += 1;
     }
 
+    stage = "identities";
     for (const legacy of identities) {
       const customerId = customerIdMap.get(legacy.customer_id);
       if (!customerId || !legacy.provider_user_id) {
@@ -198,6 +204,7 @@ export class LegacyMigrationController {
       stats.created.identities += 1;
     }
 
+    stage = "messages";
     for (const legacy of messages) {
       const customerId = customerIdMap.get(legacy.customer_id);
       if (!customerId) {
@@ -281,6 +288,7 @@ export class LegacyMigrationController {
       });
     }
 
+    stage = "calls";
     for (const legacy of calls) {
       const customerId = legacy.customer_id ? customerIdMap.get(legacy.customer_id) : undefined;
       if (!customerId || !legacy.provider_call_id) {
@@ -316,9 +324,12 @@ export class LegacyMigrationController {
       stats.created.calls += 1;
     }
 
+    stage = "repair voice channels";
     await this.repairVoiceMessageChannels();
+    stage = "cleanup test data";
     await this.removeCodexTestData();
 
+    stage = "notes";
     for (const item of [...followUps, ...leads]) {
       const customerId = item.customer_id ? customerIdMap.get(item.customer_id) : undefined;
       if (!customerId) {
@@ -354,6 +365,7 @@ export class LegacyMigrationController {
       stats.created.notes += 1;
     }
 
+    stage = "audit";
     await this.prisma.auditLog.create({
       data: {
         action: "legacy.migration",
@@ -362,6 +374,7 @@ export class LegacyMigrationController {
       },
     });
 
+    stage = "verification";
     const verification = {
       customers: await this.prisma.customer.count(),
       identities: await this.prisma.customerIdentity.count(),
@@ -377,6 +390,14 @@ export class LegacyMigrationController {
     };
 
     return { ok: true, stats, verification };
+    } catch (error) {
+      return {
+        ok: false,
+        stage,
+        error: error instanceof Error ? error.message : String(error),
+        code: typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : undefined,
+      };
+    }
   }
 
   private async fetchAll<T>(baseUrl: string, key: string, table: string): Promise<T[]> {
