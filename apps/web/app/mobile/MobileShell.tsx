@@ -455,7 +455,7 @@ export default function MobileShell({ mode }: { mode: Mode }) {
               {task.done ? <CheckCircle2 size={22} /> : <Circle size={22} />}
               <div className="mobileCardBody">
                 <div className="mobileName">{task.title}</div>
-                <div className="mobileMeta">{task.customerName ?? "No customer"} 璺?{task.dueAt}</div>
+                <div className="mobileMeta">{task.customerName ?? "No customer"} 鐠?{task.dueAt}</div>
               </div>
             </button>
           ))}
@@ -806,7 +806,7 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
         {conversation ? <button className="mobileAvatarButton" onClick={() => setProfileOpen(true)}><Avatar customer={conversation.customer} channel={conversation.channel} /></button> : <div className="mobileAvatar phone">C</div>}
         <button className="mobileChatInfo mobileChatInfoButton" onClick={() => setProfileOpen(true)}>
           <div className="mobileCustomerName">{conversation?.customer.displayName ?? conversation?.customer.primaryPhone ?? "Loading customer"}</div>
-          <div className="mobileMeta">{conversation ? `${channelNames[conversation.channel]} 璺?${formatTime(conversation.lastMessageAt)}` : "Syncing messages..."}</div>
+          <div className="mobileMeta">{conversation ? `${channelNames[conversation.channel]} 鐠?${formatTime(conversation.lastMessageAt)}` : "Syncing messages..."}</div>
         </button>
         <button className="mobileIconBtn" onClick={() => setProfileOpen(true)} aria-label="More"><MoreVertical size={20} /></button>
       </header>
@@ -907,7 +907,7 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
             <Info title="Email" value={conversation.customer.primaryEmail} />
             <Info title="Owner" value={conversation.assignedTo?.name ?? "Unassigned"} />
             <Info title="Last contact" value={conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleString() : ""} />
-            <div className="mobilePanel"><h2>Identities</h2>{conversation.customer.identities?.map((identity) => <p className="mobileMeta" key={identity.id}>{channelNames[identity.channel]} 璺?{identity.phone ?? identity.email ?? identity.displayName ?? identity.externalId}</p>)}</div>
+            <div className="mobilePanel"><h2>Identities</h2>{conversation.customer.identities?.map((identity) => <p className="mobileMeta" key={identity.id}>{channelNames[identity.channel]} · {identity.phone ?? identity.email ?? identity.displayName ?? identity.externalId}</p>)}</div>
             <div className="mobilePanel"><h2>Tags</h2><p>{conversation.customer.tags?.map((item) => item.tag.name).join(", ") || "No tags"}</p></div>
             <div className="mobilePanel"><h2>Notes</h2><textarea rows={4} defaultValue={conversation.customer.notes?.[0]?.body ?? ""} placeholder="Customer notes" /></div>
           </section>
@@ -927,22 +927,24 @@ function MessageRow({ message, previous, onCopy, onRetry }: { message: Message; 
   return (
     <>
       {showDate && <div className="mobileDateDivider"><span>{new Date(message.sentAt).toLocaleDateString()}</span></div>}
-      <article className={`mobileBubble ${direction} ${failed ? "failed" : ""}`} onDoubleClick={onCopy}>
-        {messageText(message) && <p>{messageText(message)}</p>}
-        {attachments.map((attachment) => <AttachmentPreview attachment={attachment} key={attachment.id} />)}
-        <div className="mobileBubbleMeta">
-          <span>{formatTime(message.sentAt)}</span>
-          <span>{message.channel ? channelNames[message.channel] : ""}</span>
-          <span>{statusLabel(message.status)}</span>
-        </div>
-        {failed && (
-          <div className="mobileFailure">
-            <span>{failureText(message)}</span>
-            <button onClick={onRetry}>Retry</button>
+      <div className={`mobileMessageRow ${direction}`}>
+        <article className={`mobileBubble ${direction} ${failed ? "failed" : ""}`} onDoubleClick={onCopy}>
+          {messageText(message) && <p>{messageText(message)}</p>}
+          {attachments.map((attachment) => <AttachmentPreview attachment={attachment} key={attachment.id} />)}
+          <div className="mobileBubbleMeta">
+            <span>{formatTime(message.sentAt)}</span>
+            <span>{message.channel ? channelNames[message.channel] : ""}</span>
+            <span>{statusLabel(message.status)}</span>
           </div>
-        )}
-        <button className="mobileCopyBtn" onClick={onCopy} title="Copy"><Copy size={13} /></button>
-      </article>
+          {failed && (
+            <div className="mobileFailure">
+              <span>{failureText(message)}</span>
+              <button onClick={onRetry}>Retry</button>
+            </div>
+          )}
+          <button className="mobileCopyBtn" onClick={onCopy} title="Copy"><Copy size={13} /></button>
+        </article>
+      </div>
     </>
   );
 }

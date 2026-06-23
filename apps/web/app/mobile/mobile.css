@@ -358,26 +358,40 @@ body {
   width: 64%;
 }
 
+.mobileMessageRow {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 3px 14px 5px;
+}
+
+.mobileMessageRow.inbound {
+  justify-content: flex-start;
+}
+
+.mobileMessageRow.outbound {
+  justify-content: flex-end;
+}
+
 .mobileBubble {
   position: relative;
   display: block;
-  width: fit-content;
-  max-width: min(84%, calc(100vw - 56px));
+  width: auto;
+  max-width: min(78%, 330px);
   min-width: 0;
-  border-radius: 8px;
-  padding: 9px 10px;
-  margin-bottom: 8px;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 0;
   background: #fff;
   border: 1px solid var(--mobile-line);
   overflow: hidden;
   overflow-wrap: anywhere;
   word-break: break-word;
   box-sizing: border-box;
-  align-self: flex-start;
 }
 
 .mobileVirtuoso .mobileBubble {
-  margin: 6px 10px 8px;
+  margin: 0;
 }
 
 .mobileEmptyChat {
@@ -392,19 +406,16 @@ body {
 }
 
 .mobileBubble.outbound {
-  margin-left: auto;
-  margin-right: 0;
   background: #0f172a;
   border-color: #0f172a;
   color: #fff;
-  align-self: flex-end;
 }
 
 .mobileBubble.failed {
   border-color: #fecaca;
   background: #fff1f2;
   color: var(--mobile-text);
-  max-width: min(78%, calc(100vw - 74px));
+  max-width: min(78%, 330px);
 }
 
 .mobileBubble p {
