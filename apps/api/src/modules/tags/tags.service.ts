@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import { Channel, Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { DEFAULT_TAGS } from "./default-tags";
@@ -11,15 +11,8 @@ export type TagFilter = {
 };
 
 @Injectable()
-export class TagsService implements OnModuleInit {
-  private readonly logger = new Logger(TagsService.name);
-
+export class TagsService {
   constructor(private readonly prisma: PrismaService) {}
-
-  async onModuleInit() {
-    const result = await this.seedDefaults();
-    this.logger.log(`CRM tag library ready: ${result.count} default tags`);
-  }
 
   async seedDefaults() {
     await this.ensureTagSchema();
@@ -276,6 +269,7 @@ export class TagsService implements OnModuleInit {
   }
 
   private async ensureTagSchema() {
+    await this.prisma.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
     await this.prisma.$executeRawUnsafe(`ALTER TABLE "Tag" ADD COLUMN IF NOT EXISTS "group_name" TEXT`);
     await this.prisma.$executeRawUnsafe(`ALTER TABLE "Tag" ADD COLUMN IF NOT EXISTS "is_active" BOOLEAN NOT NULL DEFAULT true`);
     await this.prisma.$executeRawUnsafe(`ALTER TABLE "CustomerTag" ADD COLUMN IF NOT EXISTS "id" UUID NOT NULL DEFAULT gen_random_uuid()`);
