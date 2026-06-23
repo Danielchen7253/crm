@@ -2,12 +2,14 @@ import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
 import { MessageDirection, MessageStatus, MessageType } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { RealtimeGateway } from "../realtime/realtime.gateway";
+import { ChannelSenderService } from "./channel-sender.service";
 
 @Controller("messages")
 export class MessagesController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeGateway,
+    private readonly sender: ChannelSenderService,
   ) {}
 
   @Get()
@@ -23,7 +25,7 @@ export class MessagesController {
   async send(@Body() body: any) {
     const conversation = await this.prisma.conversation.findUniqueOrThrow({
       where: { id: body.conversationId },
-      include: { customer: true },
+      include: { customer: true, identity: true },
     });
 
     const message = await this.prisma.message.create({
@@ -31,13 +33,27 @@ export class MessagesController {
         conversationId: conversation.id,
         customerId: conversation.customerId,
         channel: conversation.channel,
-        provider: body.provider ?? "manual",
+        provider: body.provider ?? "crm",
         direction: MessageDirection.outbound,
         type: (body.type as MessageType | undefined) ?? MessageType.text,
         status: MessageStatus.queued,
         text: body.text,
         sentAt: new Date(),
       },
+    });
+
+    const delivery = await this.sender.send(conversation, message);
+    const deliveredMessage = await this.prisma.message.update({
+      where: { id: message.id },
+      data: {
+        provider: delivery.provider,
+        status: delivery.status,
+        externalMessageId: delivery.externalMessageId,
+        failedReason: delivery.failedReason,
+        rawEvent: (delivery.raw as object | undefined) ?? {},
+        deliveredAt: delivery.status === MessageStatus.sent ? new Date() : undefined,
+      },
+      include: { attachments: true, aiReplyLogs: true },
     });
 
     await this.prisma.conversation.update({
@@ -48,13 +64,13 @@ export class MessagesController {
     this.realtime.emitInboxEvent("message.created", {
       customerId: conversation.customerId,
       conversationId: conversation.id,
-      message,
+      message: deliveredMessage,
     });
 
     return {
-      message,
-      delivery: "queued",
-      note: "Provider sender adapter is intentionally separate; webhook/status callback will mark sent/delivered/failed.",
+      message: deliveredMessage,
+      delivery: delivery.status,
+      failedReason: delivery.failedReason,
     };
   }
 
