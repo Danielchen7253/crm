@@ -231,6 +231,14 @@ export default function MobileShell({ mode }: { mode: Mode }) {
       void notify("New customer message", "Open CRM Mobile Web to reply.");
       playBeep();
     });
+    socket.on("message.status", (event: { conversationId?: string }) => {
+      void loadConversations();
+      if (event.conversationId && event.conversationId === conversationId) void loadConversation(event.conversationId);
+    });
+    socket.on("conversation.updated", (event: { id?: string }) => {
+      void loadConversations();
+      if (event.id && event.id === conversationId) void loadConversation(event.id);
+    });
     return () => {
       socket.disconnect();
     };
@@ -271,6 +279,12 @@ export default function MobileShell({ mode }: { mode: Mode }) {
       setDraft(pendingText);
       setOffline(true);
     }
+  }
+
+  async function retryMessage(messageId: string) {
+    await api(`/messages/${messageId}/retry`, token, { method: "POST" });
+    if (conversationId) await loadConversation(conversationId);
+    await loadConversations();
   }
 
   function saveTask() {

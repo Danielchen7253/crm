@@ -11,6 +11,8 @@ type DeliveryResult = {
   provider: string;
   externalMessageId?: string;
   failedReason?: string;
+  providerErrorCode?: string;
+  providerErrorMessage?: string;
   raw?: unknown;
 };
 
@@ -115,6 +117,8 @@ export class ChannelSenderService {
         status: MessageStatus.failed,
         provider: "twilio",
         failedReason: this.errorMessage(raw, response.statusText),
+        providerErrorCode: raw?.code ? String(raw.code) : String(response.status),
+        providerErrorMessage: this.errorMessage(raw, response.statusText),
         raw,
       };
     }
@@ -134,6 +138,8 @@ export class ChannelSenderService {
         status: MessageStatus.failed,
         provider,
         failedReason: this.errorMessage(raw, response.statusText),
+        providerErrorCode: raw?.error?.code ? String(raw.error.code) : String(response.status),
+        providerErrorMessage: this.errorMessage(raw, response.statusText),
         raw,
       };
     }

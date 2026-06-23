@@ -158,6 +158,18 @@ export default function Page() {
         loadDetail(event.conversationId).catch(() => undefined);
       }
     });
+    socket.on("message.status", (event: { conversationId?: string }) => {
+      loadConversations(activeChannel).catch(() => undefined);
+      if (event.conversationId && event.conversationId === activeConversationId) {
+        loadDetail(event.conversationId).catch(() => undefined);
+      }
+    });
+    socket.on("conversation.updated", (event: { id?: string }) => {
+      loadConversations(activeChannel).catch(() => undefined);
+      if (event.id && event.id === activeConversationId) {
+        loadDetail(event.id).catch(() => undefined);
+      }
+    });
     return () => {
       socket.disconnect();
     };

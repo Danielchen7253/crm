@@ -1,10 +1,17 @@
 import { Body, Controller, Get, Post, Query } from "@nestjs/common";
+import { MessageStatus } from "@prisma/client";
 import type { InboundAttachment, NormalizedInboundMessage } from "@coolfix-crm/shared";
 import { IngestService } from "../inbox/ingest.service";
+import { PrismaService } from "../prisma/prisma.service";
+import { RealtimeGateway } from "../realtime/realtime.gateway";
 
 @Controller("webhooks")
 export class WebhooksController {
-  constructor(private readonly ingest: IngestService) {}
+  constructor(
+    private readonly ingest: IngestService,
+    private readonly prisma: PrismaService,
+    private readonly realtime: RealtimeGateway,
+  ) {}
 
   @Get("meta")
   verifyMeta(@Query("hub.mode") mode?: string, @Query("hub.verify_token") token?: string, @Query("hub.challenge") challenge?: string) {
@@ -86,8 +93,35 @@ export class WebhooksController {
   }
 
   @Post("twilio/status")
-  twilioStatus(@Body() body: any) {
-    return { ok: true, providerMessageId: body.MessageSid, status: body.MessageStatus, errorCode: body.ErrorCode };
+  async twilioStatus(@Body() body: any) {
+    const status = this.mapProviderStatus(body.MessageStatus);
+    const message = await this.prisma.message.findFirst({
+      where: { externalMessageId: body.MessageSid },
+    });
+
+    if (!message) return { ok: true, matched: false, providerMessageId: body.MessageSid };
+
+    const updated = await this.prisma.message.update({
+      where: { id: message.id },
+      data: {
+        status,
+        providerErrorCode: body.ErrorCode ? String(body.ErrorCode) : undefined,
+        providerErrorMessage: body.ErrorMessage,
+        failedReason: body.ErrorMessage ?? (status === MessageStatus.failed ? body.MessageStatus : undefined),
+        deliveredAt: status === MessageStatus.delivered ? new Date() : undefined,
+        readAt: status === MessageStatus.read ? new Date() : undefined,
+        rawEvent: body,
+      },
+      include: { attachments: true, aiReplyLogs: true },
+    });
+
+    this.realtime.emitInboxEvent("message.status", {
+      conversationId: updated.conversationId,
+      customerId: updated.customerId,
+      message: updated,
+    });
+
+    return { ok: true, matched: true, providerMessageId: body.MessageSid, status };
   }
 
   @Post("meta")
@@ -101,11 +135,21 @@ export class WebhooksController {
 
   @Post("whatsapp")
   async ingestWhatsApp(@Body() body: any) {
+    await this.processMetaStatuses(body);
     const messages = this.normalizeMetaMessages(body).filter((message) => message.channel === "whatsapp");
     for (const message of messages) {
       await this.ingest.ingestInbound(message);
     }
     return { ok: true, channel: "whatsapp", count: messages.length };
+  }
+
+  @Post("instagram")
+  async ingestInstagram(@Body() body: any) {
+    const messages = this.normalizeMetaMessages(body).filter((message) => message.channel === "instagram");
+    for (const message of messages) {
+      await this.ingest.ingestInbound(message);
+    }
+    return { ok: true, channel: "instagram", count: messages.length };
   }
 
   @Post("email")
@@ -148,8 +192,9 @@ export class WebhooksController {
     for (const entry of entries) {
       for (const event of entry.messaging ?? []) {
         if (!event.message) continue;
+        const channel: NormalizedInboundMessage["channel"] = body.object === "instagram" ? "instagram" : "messenger";
         normalized.push({
-          channel: "messenger",
+          channel,
           provider: "meta",
           channelAccountExternalId: event.recipient?.id,
           externalThreadId: event.sender?.id,
@@ -160,6 +205,7 @@ export class WebhooksController {
           attachments: (event.message.attachments ?? []).map((attachment: any) => ({
             type: attachment.type === "image" ? "image" : attachment.type === "audio" ? "audio" : attachment.type === "video" ? "video" : "file",
             url: attachment.payload?.url,
+            externalMediaId: attachment.payload?.id,
           })),
           rawPayload: event,
         });
@@ -203,6 +249,7 @@ export class WebhooksController {
         url: attachment.link ?? `whatsapp-media:${attachment.id}`,
         mimeType: attachment.mime_type,
         fileName: attachment.filename,
+        externalMediaId: attachment.id,
       },
     ];
   }
@@ -217,5 +264,46 @@ export class WebhooksController {
     if (message.type === "video") return "[WhatsApp video]";
     if (message.type === "document") return message.document?.filename ? `[WhatsApp file] ${message.document.filename}` : "[WhatsApp file]";
     return `[WhatsApp ${message.type ?? "message"}]`;
+  }
+
+  private async processMetaStatuses(body: any) {
+    const entries = body.entry ?? [];
+    for (const entry of entries) {
+      for (const change of entry.changes ?? []) {
+        for (const item of change.value?.statuses ?? []) {
+          const message = await this.prisma.message.findFirst({ where: { externalMessageId: item.id } });
+          if (!message) continue;
+
+          const status = this.mapProviderStatus(item.status);
+          const updated = await this.prisma.message.update({
+            where: { id: message.id },
+            data: {
+              status,
+              providerErrorCode: item.errors?.[0]?.code ? String(item.errors[0].code) : undefined,
+              providerErrorMessage: item.errors?.[0]?.message,
+              failedReason: item.errors?.[0]?.message,
+              deliveredAt: status === MessageStatus.delivered ? new Date(Number(item.timestamp) * 1000) : undefined,
+              readAt: status === MessageStatus.read ? new Date(Number(item.timestamp) * 1000) : undefined,
+              rawEvent: change,
+            },
+            include: { attachments: true, aiReplyLogs: true },
+          });
+          this.realtime.emitInboxEvent("message.status", {
+            conversationId: updated.conversationId,
+            customerId: updated.customerId,
+            message: updated,
+          });
+        }
+      }
+    }
+  }
+
+  private mapProviderStatus(value?: string): MessageStatus {
+    if (value === "read") return MessageStatus.read;
+    if (value === "delivered") return MessageStatus.delivered;
+    if (value === "sent" || value === "accepted") return MessageStatus.sent;
+    if (value === "failed" || value === "undelivered") return MessageStatus.failed;
+    if (value === "queued" || value === "sending") return MessageStatus.queued;
+    return MessageStatus.sent;
   }
 }

@@ -34,10 +34,14 @@ export class MessagesController {
         customerId: conversation.customerId,
         channel: conversation.channel,
         provider: body.provider ?? "crm",
+        externalConversationId: conversation.externalThreadId,
+        senderType: "agent",
         direction: MessageDirection.outbound,
         type: (body.type as MessageType | undefined) ?? MessageType.text,
+        contentType: (body.type as MessageType | undefined) ?? MessageType.text,
         status: MessageStatus.queued,
         text: body.text,
+        textContent: body.text,
         sentAt: new Date(),
       },
     });
@@ -50,6 +54,8 @@ export class MessagesController {
         status: delivery.status,
         externalMessageId: delivery.externalMessageId,
         failedReason: delivery.failedReason,
+        providerErrorCode: delivery.providerErrorCode,
+        providerErrorMessage: delivery.providerErrorMessage,
         rawEvent: (delivery.raw as object | undefined) ?? {},
         deliveredAt: delivery.status === MessageStatus.sent ? new Date() : undefined,
       },
@@ -66,12 +72,64 @@ export class MessagesController {
       conversationId: conversation.id,
       message: deliveredMessage,
     });
+    this.realtime.emitInboxEvent("message.status", {
+      customerId: conversation.customerId,
+      conversationId: conversation.id,
+      message: deliveredMessage,
+    });
 
     return {
       message: deliveredMessage,
       delivery: delivery.status,
       failedReason: delivery.failedReason,
     };
+  }
+
+  @Post(":id/retry")
+  async retry(@Param("id") id: string) {
+    const message = await this.prisma.message.findUniqueOrThrow({ where: { id } });
+    if (message.direction !== MessageDirection.outbound) {
+      return { ok: false, reason: "Only outbound messages can be retried" };
+    }
+
+    const conversation = await this.prisma.conversation.findUniqueOrThrow({
+      where: { id: message.conversationId },
+      include: { customer: true, identity: true },
+    });
+
+    const queued = await this.prisma.message.update({
+      where: { id },
+      data: {
+        status: MessageStatus.queued,
+        failedReason: null,
+        providerErrorCode: null,
+        providerErrorMessage: null,
+      },
+    });
+
+    const delivery = await this.sender.send(conversation, queued);
+    const deliveredMessage = await this.prisma.message.update({
+      where: { id },
+      data: {
+        provider: delivery.provider,
+        status: delivery.status,
+        externalMessageId: delivery.externalMessageId ?? message.externalMessageId,
+        failedReason: delivery.failedReason,
+        providerErrorCode: delivery.providerErrorCode,
+        providerErrorMessage: delivery.providerErrorMessage,
+        rawEvent: (delivery.raw as object | undefined) ?? {},
+        deliveredAt: delivery.status === MessageStatus.sent ? new Date() : undefined,
+      },
+      include: { attachments: true, aiReplyLogs: true },
+    });
+
+    this.realtime.emitInboxEvent("message.status", {
+      customerId: conversation.customerId,
+      conversationId: conversation.id,
+      message: deliveredMessage,
+    });
+
+    return { message: deliveredMessage, delivery: delivery.status, failedReason: delivery.failedReason };
   }
 
   @Post(":id/upload")

@@ -32,6 +32,7 @@ export type InboundAttachment = {
   mimeType?: string;
   fileName?: string;
   sizeBytes?: number;
+  externalMediaId?: string;
 };
 
 export type NormalizedInboundMessage = {

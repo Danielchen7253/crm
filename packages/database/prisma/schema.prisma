@@ -210,11 +210,13 @@ model CustomerIdentity {
   channel             Channel
   provider            String
   externalId          String
+  externalUserId      String?
   phone               String?
   email               String?
   displayName         String?
   avatarUrl           String?
   rawProfile          Json            @default("{}")
+  lastSeenAt          DateTime?
   customer            Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
   conversations       Conversation[]
   createdAt           DateTime        @default(now())
@@ -222,6 +224,7 @@ model CustomerIdentity {
 
   @@unique([provider, externalId])
   @@index([channel, externalId])
+  @@index([channel, externalUserId])
   @@index([phone])
   @@index([email])
 }
@@ -372,18 +375,25 @@ model Message {
   id                String              @id @default(uuid()) @db.Uuid
   conversationId    String              @db.Uuid
   customerId         String              @db.Uuid
+  channelAccountId  String?             @db.Uuid
   channel            Channel
   provider           String
   externalMessageId  String?
+  externalConversationId String?
   fallbackDedupeKey  String?
   senderExternalId   String?
+  senderType         String?
   direction          MessageDirection
   type               MessageType        @default(text)
+  contentType        MessageType        @default(text)
   status             MessageStatus      @default(received)
   text               String?
+  textContent        String?
   contentHash        String?
   rawEvent           Json               @default("{}")
   failedReason       String?
+  providerErrorCode  String?
+  providerErrorMessage String?
   sentAt             DateTime           @default(now())
   deliveredAt        DateTime?
   readAt             DateTime?
@@ -407,9 +417,11 @@ model MessageAttachment {
   fileId      String?     @db.Uuid
   type        MessageType
   url         String
+  fileUrl     String?
   mimeType    String?
   fileName    String?
   sizeBytes   Int?
+  externalMediaId String?
   metadata    Json        @default("{}")
   message     Message     @relation(fields: [messageId], references: [id], onDelete: Cascade)
   file        File?       @relation(fields: [fileId], references: [id])
@@ -534,10 +546,13 @@ model WebhookEvent {
   channel          Channel
   provider         String
   channelAccountId String?         @db.Uuid
+  eventType        String?
   externalEventId  String?
   signatureValid   Boolean         @default(false)
   processed        Boolean         @default(false)
+  status           String          @default("received")
   error            String?
+  errorMessage     String?
   rawPayload       Json
   channelAccount   ChannelAccount? @relation(fields: [channelAccountId], references: [id])
   createdAt        DateTime        @default(now())
@@ -545,6 +560,23 @@ model WebhookEvent {
 
   @@index([channel, processed])
   @@index([externalEventId])
+}
+
+model SyncLog {
+  id                     String    @id @default(uuid()) @db.Uuid
+  channel                Channel
+  channelAccountId       String?   @db.Uuid
+  syncType               String
+  startedAt              DateTime  @default(now())
+  finishedAt             DateTime?
+  status                 String    @default("running")
+  importedMessagesCount  Int       @default(0)
+  importedCustomersCount Int       @default(0)
+  errorMessage           String?
+  metadata               Json      @default("{}")
+
+  @@index([channel, status])
+  @@index([channelAccountId, startedAt])
 }
 
 model AuditLog {
