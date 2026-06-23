@@ -104,7 +104,9 @@ export class IngestService {
       message,
     });
 
-    await this.ai.createSuggestionForMessage(message.id);
+    void this.ai.createSuggestionForMessage(message.id).catch((error) => {
+      console.error("AI suggestion failed", error);
+    });
     return { message, duplicate: false };
   }
 
