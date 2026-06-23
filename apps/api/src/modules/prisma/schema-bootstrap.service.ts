@@ -44,7 +44,11 @@ export class SchemaBootstrapService implements OnModuleInit {
     ];
 
     for (const statement of statements) {
-      await this.prisma.$executeRawUnsafe(statement);
+      try {
+        await this.prisma.$executeRawUnsafe(statement);
+      } catch (error) {
+        this.logger.error(`Schema bootstrap statement failed: ${statement}`, error as Error);
+      }
     }
     this.logger.log("CRM omnichannel schema bootstrap complete");
   }
