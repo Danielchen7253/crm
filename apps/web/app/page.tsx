@@ -115,6 +115,12 @@ export default function Page() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 759px)").matches) {
+      window.location.replace("/mobile/inbox");
+    }
+  }, []);
+
   const loadConversations = async (channel = activeChannel) => {
     const params = channel !== "all" && channel !== "unread" ? `?channel=${channel}` : "";
     const response = await fetch(`${API_BASE}/conversations${params}`, { cache: "no-store" });
