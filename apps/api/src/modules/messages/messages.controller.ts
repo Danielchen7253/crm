@@ -25,7 +25,7 @@ export class MessagesController {
   async send(@Body() body: any) {
     const conversation = await this.prisma.conversation.findUniqueOrThrow({
       where: { id: body.conversationId ?? body.conversation_id },
-      include: { customer: true, identity: true },
+      include: { customer: { include: { identities: true } }, identity: true },
     });
 
     const message = await this.prisma.message.create({
@@ -94,7 +94,7 @@ export class MessagesController {
 
     const conversation = await this.prisma.conversation.findUniqueOrThrow({
       where: { id: message.conversationId },
-      include: { customer: true, identity: true },
+      include: { customer: { include: { identities: true } }, identity: true },
     });
 
     const queued = await this.prisma.message.update({

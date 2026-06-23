@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { Channel, Conversation, Customer, CustomerIdentity, Message, MessageStatus } from "@prisma/client";
 
 type ConversationWithCustomer = Conversation & {
-  customer: Customer;
+  customer: Customer & { identities?: CustomerIdentity[] };
   identity?: CustomerIdentity | null;
 };
 
@@ -69,7 +69,7 @@ export class ChannelSenderService {
     const token = process.env.MESSENGER_PAGE_ACCESS_TOKEN ?? process.env.PAGE_ACCESS_TOKEN ?? process.env.META_PAGE_ACCESS_TOKEN;
     if (!token) return this.failed("meta-messenger", "Messenger is not connected. Add MESSENGER_PAGE_ACCESS_TOKEN in Render and retry.");
 
-    const recipientId = conversation.identity?.externalId ?? conversation.externalThreadId;
+    const recipientId = this.messengerRecipientId(conversation);
     if (!recipientId) return this.failed("meta-messenger", "Missing Messenger recipient id");
 
     const response = await fetch(`https://graph.facebook.com/v25.0/me/messages?access_token=${encodeURIComponent(token)}`, {
@@ -83,6 +83,15 @@ export class ChannelSenderService {
     });
 
     return this.handleMetaResponse(response, "meta-messenger");
+  }
+
+  private messengerRecipientId(conversation: ConversationWithCustomer) {
+    const identity = conversation.identity ?? conversation.customer.identities?.find((item) => item.channel === Channel.messenger);
+    const metadata = conversation.customer.metadata as Record<string, any> | null;
+    const rawMetadata = metadata?.rawMetadata as Record<string, any> | undefined;
+    const candidate = identity?.externalId ?? identity?.externalUserId ?? rawMetadata?.messenger_psid ?? conversation.externalThreadId;
+    if (!candidate || candidate.startsWith("legacy:")) return null;
+    return candidate;
   }
 
   private async sendTwilioSms(conversation: ConversationWithCustomer, message: Message): Promise<DeliveryResult> {
