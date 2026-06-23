@@ -18,8 +18,8 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "https://coolfix-omni-api.onrender.com/api";
-const SOCKET_URL = API_BASE.replace(/\/api\/?$/, "");
+const API_BASE = "/api/backend";
+const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL ?? "https://coolfix-omni-api.onrender.com";
 
 const channels = [
   { key: "all", label: "全部", icon: Inbox },
