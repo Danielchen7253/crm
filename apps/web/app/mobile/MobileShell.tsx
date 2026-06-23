@@ -26,6 +26,7 @@ import "./mobile.css";
 
 const API_BASE = "/api/backend";
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL ?? "https://coolfix-omni-api.onrender.com";
+const DEFAULT_TOKEN = "development-token";
 const TOKEN_KEY = "coolfix.crm.mobile.web.token";
 const DRAFT_PREFIX = "coolfix.crm.mobile.draft.";
 const TASK_KEY = "coolfix.crm.mobile.web.tasks";
@@ -122,7 +123,7 @@ const defaultTags = ["VIP", "Wholesale", "HVAC", "Refrigeration", "Follow Up", "
 export default function MobileShell({ mode }: { mode: Mode }) {
   const router = useRouter();
   const params = useParams<{ id?: string }>();
-  const [token, setToken] = useState("");
+  const [token, setToken] = useState(DEFAULT_TOKEN);
   const [loginValue, setLoginValue] = useState("");
   const [loginMode, setLoginMode] = useState<"email" | "phone">("email");
   const [filter, setFilter] = useState<Filter>("all");
@@ -210,7 +211,11 @@ export default function MobileShell({ mode }: { mode: Mode }) {
 
   useEffect(() => {
     const saved = localStorage.getItem(TOKEN_KEY);
-    if (saved) setToken(saved);
+    if (saved) {
+      setToken(saved);
+    } else {
+      localStorage.setItem(TOKEN_KEY, DEFAULT_TOKEN);
+    }
     const rawTasks = localStorage.getItem(TASK_KEY);
     if (rawTasks) setTasks(JSON.parse(rawTasks) as FollowTask[]);
     if ("serviceWorker" in navigator) {
