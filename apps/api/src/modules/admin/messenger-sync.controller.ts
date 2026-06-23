@@ -17,4 +17,9 @@ export class MessengerSyncController {
   status() {
     return this.messengerSync.getStatus();
   }
+
+  @Post("repair-conversations")
+  repairConversations() {
+    return this.messengerSync.repairMessengerConversations();
+  }
 }

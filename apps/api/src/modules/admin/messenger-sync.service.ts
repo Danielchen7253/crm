@@ -87,6 +87,60 @@ export class MessengerSyncService {
     return { started: true, status: this.status };
   }
 
+  async repairMessengerConversations() {
+    const identities = await this.prisma.customerIdentity.findMany({
+      where: { channel: Channel.messenger, provider: "messenger" },
+      include: { conversations: true },
+    });
+
+    let inspected = 0;
+    let updated = 0;
+    let merged = 0;
+    let skipped = 0;
+
+    for (const identity of identities) {
+      inspected += 1;
+      const psid = identity.externalId || identity.externalUserId;
+      if (!psid) {
+        skipped += 1;
+        continue;
+      }
+
+      const target = await this.prisma.conversation.findUnique({
+        where: { channel_externalThreadId: { channel: Channel.messenger, externalThreadId: psid } },
+      });
+      const staleConversations = identity.conversations.filter((conversation) => conversation.externalThreadId !== psid);
+
+      if (!target) {
+        const first = staleConversations[0];
+        if (!first) {
+          skipped += 1;
+          continue;
+        }
+        await this.prisma.conversation.update({
+          where: { id: first.id },
+          data: { externalThreadId: psid, metadata: { ...(first.metadata as object), repairedFromExternalThreadId: first.externalThreadId } },
+        });
+        updated += 1;
+        continue;
+      }
+
+      for (const stale of staleConversations) {
+        if (stale.id === target.id) continue;
+        await this.prisma.$transaction([
+          this.prisma.message.updateMany({ where: { conversationId: stale.id }, data: { conversationId: target.id } }),
+          this.prisma.aiReplyLog.updateMany({ where: { conversationId: stale.id }, data: { conversationId: target.id } }),
+          this.prisma.internalNote.updateMany({ where: { conversationId: stale.id }, data: { conversationId: target.id } }),
+          this.prisma.callSession.updateMany({ where: { conversationId: stale.id }, data: { conversationId: target.id } }),
+          this.prisma.conversation.delete({ where: { id: stale.id } }),
+        ]);
+        merged += 1;
+      }
+    }
+
+    return { inspected, updated, merged, skipped };
+  }
+
   private async run(options: { limit?: number; messagesPerConversation?: number }) {
     const token = process.env.MESSENGER_PAGE_ACCESS_TOKEN ?? process.env.PAGE_ACCESS_TOKEN ?? process.env.META_PAGE_ACCESS_TOKEN;
     if (!token) throw new Error("Missing MESSENGER_PAGE_ACCESS_TOKEN");
@@ -256,7 +310,7 @@ export class MessengerSyncService {
     }
 
     await this.prisma.conversation.upsert({
-      where: { channel_externalThreadId: { channel: Channel.messenger, externalThreadId: conversation.id } },
+      where: { channel_externalThreadId: { channel: Channel.messenger, externalThreadId: participant.id } },
       update: {
         customerId: identity.customerId,
         identityId: identity.id,
@@ -266,10 +320,10 @@ export class MessengerSyncService {
         customerId: identity.customerId,
         identityId: identity.id,
         channel: Channel.messenger,
-        externalThreadId: conversation.id,
+        externalThreadId: participant.id,
         status: "open",
         lastMessageAt,
-        metadata: { pageId: config.pageId },
+        metadata: { graphConversationId: conversation.id, pageId: config.pageId },
       },
     });
 
@@ -288,7 +342,7 @@ export class MessengerSyncService {
       channel: "messenger",
       provider: "messenger",
       channelAccountExternalId: config.graphVersion,
-      externalThreadId: conversationId,
+      externalThreadId: participant.id,
       externalMessageId: message.id,
       senderExternalId: participant.id,
       senderName: message.from?.name ?? participant.name,

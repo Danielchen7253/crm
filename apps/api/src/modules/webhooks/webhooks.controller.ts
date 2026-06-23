@@ -126,7 +126,7 @@ export class WebhooksController {
 
   @Post("meta")
   async ingestMeta(@Body() body: any) {
-    const messages = this.normalizeMetaMessages(body);
+    const messages = await this.normalizeMetaMessages(body);
     for (const message of messages) {
       await this.ingest.ingestInbound(message);
     }
@@ -136,7 +136,7 @@ export class WebhooksController {
   @Post("whatsapp")
   async ingestWhatsApp(@Body() body: any) {
     await this.processMetaStatuses(body);
-    const messages = this.normalizeMetaMessages(body).filter((message) => message.channel === "whatsapp");
+    const messages = (await this.normalizeMetaMessages(body)).filter((message) => message.channel === "whatsapp");
     for (const message of messages) {
       await this.ingest.ingestInbound(message);
     }
@@ -145,7 +145,7 @@ export class WebhooksController {
 
   @Post("instagram")
   async ingestInstagram(@Body() body: any) {
-    const messages = this.normalizeMetaMessages(body).filter((message) => message.channel === "instagram");
+    const messages = (await this.normalizeMetaMessages(body)).filter((message) => message.channel === "instagram");
     for (const message of messages) {
       await this.ingest.ingestInbound(message);
     }
@@ -185,21 +185,28 @@ export class WebhooksController {
     return "file";
   }
 
-  private normalizeMetaMessages(body: any): NormalizedInboundMessage[] {
+  private async normalizeMetaMessages(body: any): Promise<NormalizedInboundMessage[]> {
     const entries = body.entry ?? [];
     const normalized: NormalizedInboundMessage[] = [];
 
     for (const entry of entries) {
       for (const event of entry.messaging ?? []) {
         if (!event.message) continue;
+        if (event.message.is_echo) continue;
         const channel: NormalizedInboundMessage["channel"] = body.object === "instagram" ? "instagram" : "messenger";
+        const senderId = event.sender?.id;
+        if (!senderId) continue;
+        const profile = await this.fetchMetaProfile(channel, senderId);
+        const provider = channel === "instagram" ? "instagram" : "messenger";
         normalized.push({
           channel,
-          provider: "meta",
+          provider,
           channelAccountExternalId: event.recipient?.id,
-          externalThreadId: event.sender?.id,
+          externalThreadId: senderId,
           externalMessageId: event.message.mid,
-          senderExternalId: event.sender?.id,
+          senderExternalId: senderId,
+          senderName: profile?.name,
+          senderAvatarUrl: profile?.avatarUrl,
           text: event.message.text,
           timestamp: event.timestamp ? new Date(event.timestamp).toISOString() : undefined,
           attachments: (event.message.attachments ?? []).map((attachment: any) => ({
@@ -207,7 +214,7 @@ export class WebhooksController {
             url: attachment.payload?.url,
             externalMediaId: attachment.payload?.id,
           })),
-          rawPayload: event,
+          rawPayload: { ...event, crmResolvedProfile: profile },
         });
       }
 
@@ -233,6 +240,31 @@ export class WebhooksController {
     }
 
     return normalized;
+  }
+
+  private async fetchMetaProfile(channel: NormalizedInboundMessage["channel"], senderId: string) {
+    if (channel !== "messenger" && channel !== "instagram") return undefined;
+    const token =
+      channel === "instagram"
+        ? process.env.INSTAGRAM_ACCESS_TOKEN ?? process.env.META_ACCESS_TOKEN
+        : process.env.MESSENGER_PAGE_ACCESS_TOKEN ?? process.env.PAGE_ACCESS_TOKEN ?? process.env.META_PAGE_ACCESS_TOKEN;
+    if (!token) return undefined;
+
+    const graphVersion = process.env.META_GRAPH_VERSION ?? "v25.0";
+    const fields = channel === "instagram" ? "name,username,profile_pic" : "first_name,last_name,name,profile_pic";
+    const url = `https://graph.facebook.com/${graphVersion}/${senderId}?fields=${fields}&access_token=${encodeURIComponent(token)}`;
+    try {
+      const response = await fetch(url);
+      const raw = await response.json().catch(() => ({}));
+      if (!response.ok || raw.error) return undefined;
+      const name = raw.name ?? raw.username ?? [raw.first_name, raw.last_name].filter(Boolean).join(" ");
+      return {
+        name: name || undefined,
+        avatarUrl: raw.profile_pic,
+      };
+    } catch {
+      return undefined;
+    }
   }
 
   private whatsAppContact(contacts: any[] | undefined, from?: string) {
