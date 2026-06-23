@@ -8,6 +8,7 @@ import { CallsModule } from "./modules/calls/calls.module";
 import { CampaignsModule } from "./modules/campaigns/campaigns.module";
 import { ConversationsModule } from "./modules/conversations/conversations.module";
 import { CustomersModule } from "./modules/customers/customers.module";
+import { FilesModule } from "./modules/files/files.module";
 import { InboxModule } from "./modules/inbox/inbox.module";
 import { MessagesModule } from "./modules/messages/messages.module";
 import { PrismaModule } from "./modules/prisma/prisma.module";
@@ -27,6 +28,7 @@ import { WebhooksModule } from "./modules/webhooks/webhooks.module";
     ConversationsModule,
     MessagesModule,
     CustomersModule,
+    FilesModule,
     WebhooksModule,
     AiModule,
     CampaignsModule,

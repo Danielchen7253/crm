@@ -24,7 +24,7 @@ export class MessagesController {
   @Post("send")
   async send(@Body() body: any) {
     const conversation = await this.prisma.conversation.findUniqueOrThrow({
-      where: { id: body.conversationId },
+      where: { id: body.conversationId ?? body.conversation_id },
       include: { customer: true, identity: true },
     });
 
@@ -37,11 +37,11 @@ export class MessagesController {
         externalConversationId: conversation.externalThreadId,
         senderType: "agent",
         direction: MessageDirection.outbound,
-        type: (body.type as MessageType | undefined) ?? MessageType.text,
-        contentType: (body.type as MessageType | undefined) ?? MessageType.text,
+        type: (body.content_type as MessageType | undefined) ?? (body.type as MessageType | undefined) ?? MessageType.text,
+        contentType: (body.content_type as MessageType | undefined) ?? (body.type as MessageType | undefined) ?? MessageType.text,
         status: MessageStatus.queued,
-        text: body.text,
-        textContent: body.text,
+        text: body.text_content ?? body.text,
+        textContent: body.text_content ?? body.text,
         sentAt: new Date(),
       },
     });
@@ -130,6 +130,17 @@ export class MessagesController {
     });
 
     return { message: deliveredMessage, delivery: delivery.status, failedReason: delivery.failedReason };
+  }
+
+  @Post("upload")
+  uploadFilePlaceholder(@Body() body: any) {
+    return {
+      id: `upload-${Date.now()}`,
+      url: body.url ?? "",
+      fileName: body.fileName,
+      contentType: body.contentType,
+      note: "File storage placeholder; wire to R2/S3 for production uploads.",
+    };
   }
 
   @Post(":id/upload")

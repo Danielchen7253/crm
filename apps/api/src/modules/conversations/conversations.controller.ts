@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Query } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import { Channel } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { RealtimeGateway } from "../realtime/realtime.gateway";
@@ -33,6 +33,37 @@ export class ConversationsController {
       orderBy: [{ lastMessageAt: "desc" }, { createdAt: "desc" }],
       take: 100,
     });
+  }
+
+  @Get(":id/messages")
+  async messages(@Param("id") id: string, @Query("cursor") cursor?: string, @Query("limit") limit = "30") {
+    const take = Math.min(Math.max(Number(limit) || 30, 1), 50);
+    const rows = await this.prisma.message.findMany({
+      where: {
+        conversationId: id,
+        sentAt: cursor ? { lt: new Date(cursor) } : undefined,
+      },
+      include: { attachments: true, aiReplyLogs: true },
+      orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
+      take,
+    });
+    const ordered = rows.reverse();
+    return {
+      messages: ordered,
+      nextCursor: ordered[0]?.sentAt?.toISOString() ?? null,
+      hasMore: rows.length === take,
+    };
+  }
+
+  @Post(":id/read")
+  async read(@Param("id") id: string) {
+    const conversation = await this.prisma.conversation.update({
+      where: { id },
+      data: { unreadCount: 0 },
+      include: { customer: true },
+    });
+    this.realtime.emitInboxEvent("conversation.read", { conversationId: id, conversation });
+    return { ok: true, conversation };
   }
 
   @Get(":id")

@@ -8,20 +8,29 @@ import {
   CheckCircle2,
   ChevronLeft,
   Circle,
+  Copy,
   FileText,
+  FileUp,
   ImageIcon,
+  ImagePlus,
   Mail,
   Menu,
   Mic,
+  MoreVertical,
   Paperclip,
+  RefreshCw,
   Search,
   Send,
+  Sparkles,
   UserRound,
   Users,
   Video,
+  X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { QueryClient, QueryClientProvider, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type ClipboardEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import "./mobile.css";
 
 const API_BASE = "/api/backend";
@@ -30,6 +39,8 @@ const DEFAULT_TOKEN = "development-token";
 const TOKEN_KEY = "coolfix.crm.mobile.web.token";
 const DRAFT_PREFIX = "coolfix.crm.mobile.draft.";
 const TASK_KEY = "coolfix.crm.mobile.web.tasks";
+const PAGE_SIZE = 30;
+const mobileQueryClient = new QueryClient();
 
 type Channel = "messenger" | "whatsapp" | "sms" | "instagram" | "email" | "website_chat" | "phone";
 type Filter = "all" | "unread" | "mine" | Channel;
@@ -39,19 +50,41 @@ type Attachment = {
   id: string;
   type: "image" | "audio" | "video" | "file";
   url: string;
+  fileUrl?: string | null;
   fileName?: string | null;
+  mimeType?: string | null;
+  size?: number | null;
 };
 
 type Message = {
   id: string;
+  temp_id?: string;
+  conversation_id?: string;
+  customer_id?: string;
   direction: "inbound" | "outbound" | "internal";
+  sender_type?: string | null;
+  channel?: Channel | null;
   type: string;
   status: string;
   text?: string | null;
+  textContent?: string | null;
+  text_content?: string | null;
+  content_type?: string | null;
+  providerErrorMessage?: string | null;
   sentAt: string;
+  createdAt?: string | null;
+  deliveredAt?: string | null;
+  readAt?: string | null;
   failedReason?: string | null;
   attachments?: Attachment[];
+  rawEvent?: unknown;
   aiReplyLogs?: { suggestedReply?: string | null; confidence?: number | null; action?: string | null; detectedLanguage?: string | null }[];
+};
+
+type MessagePage = {
+  messages: Message[];
+  nextCursor: string | null;
+  hasMore: boolean;
 };
 
 type Customer = {
@@ -229,6 +262,7 @@ export default function MobileShell({ mode }: { mode: Mode }) {
 
   useEffect(() => {
     if (!token) return;
+    if (mode === "conversation") return;
     const socket = io(SOCKET_URL, { transports: ["websocket", "polling"] });
     socket.on("connect", () => setOffline(false));
     socket.on("disconnect", () => setOffline(true));
@@ -249,7 +283,7 @@ export default function MobileShell({ mode }: { mode: Mode }) {
     return () => {
       socket.disconnect();
     };
-  }, [conversationId, loadConversation, loadConversations, token]);
+  }, [conversationId, loadConversation, loadConversations, mode, token]);
 
   useEffect(() => {
     if (conversationId) localStorage.setItem(`${DRAFT_PREFIX}${conversationId}`, draft);
@@ -342,83 +376,8 @@ export default function MobileShell({ mode }: { mode: Mode }) {
     );
   }
 
-  if (mode === "conversation" && !conversation) {
-    return (
-      <main className="mobileChat">
-        <header className="mobileChatHeader">
-          <Link className="mobileBackBtn" href="/mobile/inbox"><ChevronLeft size={22} /></Link>
-          <div className="mobileAvatar phone">C</div>
-          <div className="mobileChatInfo">
-            <div className="mobileCustomerName">Loading conversation</div>
-            <div className="mobileMeta">Syncing messages...</div>
-          </div>
-        </header>
-        <section className="mobileMessages">
-          <div className="mobileEmptyChat">Loading customer chat...</div>
-        </section>
-        <section className="mobileComposerWrap">
-          <div className="mobileComposer">
-            <button className="mobileFileBtn" title="Upload file"><Paperclip size={20} /></button>
-            <textarea disabled placeholder="Loading..." />
-            <button className="mobileSendBtn" disabled><Send size={19} /></button>
-          </div>
-        </section>
-      </main>
-    );
-  }
-
-  if (mode === "conversation" && conversation) {
-    const orderedMessages = [...(conversation.messages ?? [])].sort(
-      (left, right) => new Date(left.sentAt).getTime() - new Date(right.sentAt).getTime(),
-    );
-
-    return (
-      <main className="mobileChat">
-        <header className="mobileChatHeader">
-          <Link className="mobileBackBtn" href="/mobile/inbox"><ChevronLeft size={22} /></Link>
-          <Avatar customer={conversation.customer} channel={conversation.channel} />
-          <div className="mobileChatInfo">
-            <div className="mobileCustomerName">{conversation.customer.displayName ?? conversation.customer.primaryPhone ?? "New customer"}</div>
-            <div className="mobileMeta">{channelNames[conversation.channel]} · {formatTime(conversation.lastMessageAt)}</div>
-          </div>
-          <Link className="mobileIconBtn" href={`/mobile/customers/${conversation.customer.id}`}><UserRound size={19} /></Link>
-        </header>
-        <section className="mobileMessages">
-          {orderedMessages.map((message) => (
-            <article key={message.id} className={`mobileBubble ${message.direction}`}>
-              {message.text && <p>{message.text}</p>}
-              {message.attachments?.map((attachment) => <AttachmentPreview attachment={attachment} key={attachment.id} />)}
-              <small>{formatTime(message.sentAt)} · {message.status}{message.failedReason ? ` · ${message.failedReason}` : ""}</small>
-            </article>
-          ))}
-          <div ref={messagesEndRef} />
-        </section>
-        <section className="mobileComposerWrap">
-          {aiSuggestion?.suggestedReply && (
-            <div className="mobileAi">
-              <div className="mobileAiTitle">AI suggestion · {Math.round((aiSuggestion.confidence ?? 0) * 100)}%</div>
-              <p>{aiSuggestion.suggestedReply}</p>
-              <div className="mobileActions">
-                <button className="mobileActionBtn" onClick={() => void sendMessage(aiSuggestion.suggestedReply ?? "")}>Send</button>
-                <button className="mobileActionBtn" onClick={() => setDraft(aiSuggestion.suggestedReply ?? "")}>Edit then send</button>
-                <button className="mobileQuickBtn">Ignore</button>
-              </div>
-            </div>
-          )}
-          <div className="mobileQuickReplies">
-            {quickReplies.filter((reply) => reply.isActive && (!reply.channel || reply.channel === conversation.channel)).slice(0, 12).map((reply) => (
-              <button className="mobileQuickBtn" key={reply.id} onClick={() => setDraft(reply.content)}>{reply.name}</button>
-            ))}
-          </div>
-          <div className="mobileComposer">
-            <button className="mobileFileBtn" title="Upload file"><Paperclip size={20} /></button>
-            <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Type reply" />
-            <button className="mobileSendBtn" onClick={() => void sendMessage()}><Send size={19} /></button>
-          </div>
-        </section>
-        {offline && <div className="mobileOffline">Network disconnected. Reconnecting...</div>}
-      </main>
-    );
+  if (mode === "conversation") {
+    return <MobileConversationProvider conversationId={conversationId ?? conversation?.id ?? ""} token={token} />;
   }
 
   return (
@@ -525,6 +484,484 @@ async function api<T>(path: string, token: string, init?: RequestInit): Promise<
   return response.json() as Promise<T>;
 }
 
+function MobileConversationProvider({ conversationId, token }: { conversationId: string; token: string }) {
+  return (
+    <QueryClientProvider client={mobileQueryClient}>
+      <MobileConversationScreen conversationId={conversationId} token={token} />
+    </QueryClientProvider>
+  );
+}
+
+function MobileConversationScreen({ conversationId, token }: { conversationId: string; token: string }) {
+  const queryClient = useQueryClient();
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const shellRef = useRef<HTMLElement | null>(null);
+  const headerRef = useRef<HTMLElement | null>(null);
+  const composerRef = useRef<HTMLElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const [draft, setDraft] = useState("");
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [showNewMessage, setShowNewMessage] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [typing, setTyping] = useState(false);
+  const [offline, setOffline] = useState(false);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const previousPosition = document.body.style.position;
+    const previousWidth = document.body.style.width;
+    document.body.style.overflow = "hidden";
+    document.body.style.position = "fixed";
+    document.body.style.width = "100%";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.style.position = previousPosition;
+      document.body.style.width = previousWidth;
+    };
+  }, []);
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    const header = headerRef.current;
+    const composer = composerRef.current;
+    if (!shell || !header || !composer) return;
+
+    const syncLayout = () => {
+      shell.style.setProperty("--mobile-chat-header-height", `${Math.ceil(header.getBoundingClientRect().height)}px`);
+      shell.style.setProperty("--mobile-chat-composer-height", `${Math.ceil(composer.getBoundingClientRect().height)}px`);
+    };
+
+    syncLayout();
+    const observer = new ResizeObserver(syncLayout);
+    observer.observe(header);
+    observer.observe(composer);
+    window.visualViewport?.addEventListener("resize", syncLayout);
+    window.addEventListener("orientationchange", syncLayout);
+    return () => {
+      observer.disconnect();
+      window.visualViewport?.removeEventListener("resize", syncLayout);
+      window.removeEventListener("orientationchange", syncLayout);
+    };
+  }, [draft, quickOpen, profileOpen]);
+
+  const conversationQuery = useQuery({
+    queryKey: ["mobile-conversation", conversationId],
+    queryFn: () => api<Conversation>(`/conversations/${conversationId}`, token),
+    enabled: Boolean(conversationId && token),
+  });
+
+  const quickRepliesQuery = useQuery({
+    queryKey: ["mobile-quick-replies"],
+    queryFn: () => api<QuickReply[]>("/quick-replies", token),
+    enabled: Boolean(token),
+  });
+
+  const messagesQuery = useInfiniteQuery({
+    queryKey: ["mobile-messages", conversationId],
+    initialPageParam: undefined as string | undefined,
+    enabled: Boolean(conversationId && token),
+    queryFn: async ({ pageParam }) => {
+      try {
+        return await api<MessagePage>(`/conversations/${conversationId}/messages?limit=${PAGE_SIZE}${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ""}`, token);
+      } catch {
+        const fallback = await api<Conversation>(`/conversations/${conversationId}`, token);
+        const allMessages = [...(fallback.messages ?? [])].sort((left, right) => new Date(left.sentAt).getTime() - new Date(right.sentAt).getTime());
+        return { messages: allMessages.slice(-PAGE_SIZE), nextCursor: allMessages[0]?.sentAt ?? null, hasMore: allMessages.length > PAGE_SIZE };
+      }
+    },
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.nextCursor ?? undefined : undefined),
+  });
+
+  const messages = useMemo(() => {
+    const rows = messagesQuery.data?.pages.flatMap((page) => page.messages) ?? [];
+    const byId = new Map<string, Message>();
+    for (const message of rows) byId.set(message.id, message);
+    return [...byId.values()].sort((left, right) => new Date(left.sentAt).getTime() - new Date(right.sentAt).getTime());
+  }, [messagesQuery.data]);
+
+  const conversation = conversationQuery.data;
+  const aiSuggestion = useMemo(() => {
+    const logs = [...messages].reverse().flatMap((message) => message.aiReplyLogs ?? []);
+    return logs.find((log) => log.action !== "no_reply" && log.suggestedReply);
+  }, [messages]);
+
+  const quickReplies = useMemo(() => {
+    const loaded = quickRepliesQuery.data?.filter((reply) => reply.isActive && (!conversation || !reply.channel || reply.channel === conversation.channel)) ?? [];
+    return loaded.length
+      ? loaded
+      : defaultQuickNames.map((name, index) => ({ id: `default-${index}`, name, channel: null, language: "en", content: name, isActive: true }));
+  }, [conversation, quickRepliesQuery.data]);
+
+  const sendMutation = useMutation({
+    mutationFn: async (text: string) => {
+      const payload = {
+        conversation_id: conversationId,
+        conversationId,
+        channel: conversation?.channel,
+        content_type: "text",
+        text_content: text,
+        attachment_ids: [],
+      };
+      return api<{ message: Message; failedReason?: string }>("/messages/send", token, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+    onMutate: async (text) => {
+      await queryClient.cancelQueries({ queryKey: ["mobile-messages", conversationId] });
+      const previous = queryClient.getQueryData<{ pages: MessagePage[]; pageParams: unknown[] }>(["mobile-messages", conversationId]);
+      const tempMessage: Message = {
+        id: `temp-${Date.now()}`,
+        temp_id: `temp-${Date.now()}`,
+        conversation_id: conversationId,
+        customer_id: conversation?.customer.id,
+        direction: "outbound",
+        sender_type: "agent",
+        channel: conversation?.channel,
+        content_type: "text",
+        type: "text",
+        status: "queued",
+        text,
+        textContent: text,
+        sentAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        attachments: [],
+      } as Message;
+      queryClient.setQueryData(["mobile-messages", conversationId], (old: { pages: MessagePage[]; pageParams: unknown[] } | undefined) => {
+        if (!old?.pages.length) return { pages: [{ messages: [tempMessage], nextCursor: null, hasMore: false }], pageParams: [undefined] };
+        const pages = [...old.pages];
+        pages[pages.length - 1] = { ...pages[pages.length - 1], messages: [...pages[pages.length - 1].messages, tempMessage] };
+        return { ...old, pages };
+      });
+      setDraft("");
+      requestAnimationFrame(() => virtuosoRef.current?.scrollToIndex({ index: messages.length, align: "end", behavior: "smooth" }));
+      return { previous, text };
+    },
+    onError: (_error, _text, context) => {
+      if (context?.previous) queryClient.setQueryData(["mobile-messages", conversationId], context.previous);
+      if (context?.text) setDraft(context.text);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["mobile-messages", conversationId] });
+      void queryClient.invalidateQueries({ queryKey: ["mobile-conversation", conversationId] });
+    },
+  });
+
+  const retryMutation = useMutation({
+    mutationFn: (messageId: string) => api(`/messages/${messageId}/retry`, token, { method: "POST" }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["mobile-messages", conversationId] }),
+  });
+
+  useEffect(() => {
+    if (!conversationId) return;
+    const socket = io(SOCKET_URL, { transports: ["websocket", "polling"] });
+    socket.on("connect", () => {
+      setOffline(false);
+      socket.emit("conversation.join", { conversationId });
+    });
+    socket.on("disconnect", () => setOffline(true));
+    socket.on("message.created", (event: { conversationId?: string }) => {
+      if (event.conversationId !== conversationId) return;
+      void queryClient.invalidateQueries({ queryKey: ["mobile-messages", conversationId] });
+      void queryClient.invalidateQueries({ queryKey: ["mobile-conversation", conversationId] });
+      if (isAtBottom) {
+        requestAnimationFrame(() => virtuosoRef.current?.scrollToIndex({ index: Math.max(messages.length - 1, 0), align: "end", behavior: "smooth" }));
+      } else {
+        setShowNewMessage(true);
+      }
+      playBeep();
+    });
+    socket.on("message.updated", (event: { conversationId?: string }) => {
+      if (event.conversationId === conversationId) void queryClient.invalidateQueries({ queryKey: ["mobile-messages", conversationId] });
+    });
+    socket.on("message.status", (event: { conversationId?: string }) => {
+      if (event.conversationId === conversationId) void queryClient.invalidateQueries({ queryKey: ["mobile-messages", conversationId] });
+    });
+    socket.on("conversation.read", (event: { conversationId?: string }) => {
+      if (event.conversationId === conversationId) void queryClient.invalidateQueries({ queryKey: ["mobile-conversation", conversationId] });
+    });
+    socket.on("typing.started", (event: { conversationId?: string }) => {
+      if (event.conversationId === conversationId) setTyping(true);
+    });
+    socket.on("typing.stopped", (event: { conversationId?: string }) => {
+      if (event.conversationId === conversationId) setTyping(false);
+    });
+    return () => {
+      socket.emit("conversation.leave", { conversationId });
+      socket.disconnect();
+    };
+  }, [conversationId, isAtBottom, messages.length, queryClient]);
+
+  useEffect(() => {
+    if (!conversationId || !token) return;
+    void api(`/conversations/${conversationId}/read`, token, { method: "POST" }).catch(() => undefined);
+  }, [conversationId, token]);
+
+  useEffect(() => {
+    if (!messages.length) return;
+    if (isAtBottom) requestAnimationFrame(() => virtuosoRef.current?.scrollToIndex({ index: messages.length - 1, align: "end" }));
+  }, [conversationId, isAtBottom, messages.length]);
+
+  function submitDraft() {
+    const text = draft.trim();
+    if (!text || sendMutation.isPending) return;
+    sendMutation.mutate(text);
+  }
+
+  function insertText(text: string) {
+    setDraft((current) => (current ? `${current}\n${text}` : text));
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      submitDraft();
+    }
+  }
+
+  function onPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const image = [...event.clipboardData.items].find((item) => item.type.startsWith("image/"));
+    if (image) setOffline(false);
+  }
+
+  async function onPickFile(file?: File | null) {
+    if (!file) return;
+    const payload = new FormData();
+    payload.append("file", file);
+    const response = await fetch(`${API_BASE}/files/upload`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: payload,
+    }).catch(() => null);
+    if (!response?.ok) {
+      setOffline(true);
+      return;
+    }
+    setOffline(false);
+  }
+
+  if (!conversationId) {
+    return <main className="mobileChat"><div className="mobileEmptyChat">Missing conversation.</div></main>;
+  }
+
+  const loading = conversationQuery.isLoading || messagesQuery.isLoading;
+
+  return (
+    <main ref={shellRef} className="mobileChat" onDragOver={(event) => event.preventDefault()} onDrop={(event) => event.preventDefault()}>
+      <header ref={headerRef} className="mobileChatHeader">
+        <Link className="mobileBackBtn" href="/mobile/inbox" aria-label="Back"><ChevronLeft size={22} /></Link>
+        {conversation ? <button className="mobileAvatarButton" onClick={() => setProfileOpen(true)}><Avatar customer={conversation.customer} channel={conversation.channel} /></button> : <div className="mobileAvatar phone">C</div>}
+        <button className="mobileChatInfo mobileChatInfoButton" onClick={() => setProfileOpen(true)}>
+          <div className="mobileCustomerName">{conversation?.customer.displayName ?? conversation?.customer.primaryPhone ?? "Loading customer"}</div>
+          <div className="mobileMeta">{conversation ? `${channelNames[conversation.channel]} · ${formatTime(conversation.lastMessageAt)}` : "Syncing messages..."}</div>
+        </button>
+        <button className="mobileIconBtn" onClick={() => setProfileOpen(true)} aria-label="More"><MoreVertical size={20} /></button>
+      </header>
+
+      <section className="mobileMessages mobileVirtuosoWrap">
+        {loading ? (
+          <div className="mobileChatSkeleton">
+            <span /><span /><span /><span />
+          </div>
+        ) : (
+          <Virtuoso
+            ref={virtuosoRef}
+            className="mobileVirtuoso"
+            data={messages}
+            startReached={() => {
+              if (messagesQuery.hasNextPage && !messagesQuery.isFetchingNextPage) void messagesQuery.fetchNextPage();
+            }}
+            atBottomStateChange={(bottom) => {
+              setIsAtBottom(bottom);
+              if (bottom) setShowNewMessage(false);
+            }}
+            followOutput={isAtBottom ? "smooth" : false}
+            itemContent={(index, message) => (
+              <MessageRow
+                key={message.id}
+                message={message}
+                previous={messages[index - 1]}
+                onCopy={() => void navigator.clipboard?.writeText(messageText(message))}
+                onRetry={() => retryMutation.mutate(message.id)}
+              />
+            )}
+            components={{
+              Header: () => messagesQuery.isFetchingNextPage ? <div className="mobileHistoryLoading">Loading earlier messages...</div> : null,
+              Footer: () => typing ? <div className="mobileTyping">Customer is typing...</div> : <div className="mobileListBottomSpace" />,
+            }}
+          />
+        )}
+        {showNewMessage && (
+          <button className="mobileNewMessageBtn" onClick={() => virtuosoRef.current?.scrollToIndex({ index: Math.max(messages.length - 1, 0), align: "end", behavior: "smooth" })}>
+            New messages
+          </button>
+        )}
+      </section>
+
+      <section ref={composerRef} className="mobileComposerWrap">
+        {aiSuggestion?.suggestedReply && (
+          <div className="mobileAi">
+            <div className="mobileAiTitle"><Sparkles size={14} /> AI suggestion · {Math.round((aiSuggestion.confidence ?? 0) * 100)}%</div>
+            <p>{aiSuggestion.suggestedReply}</p>
+            <div className="mobileActions">
+              <button className="mobileActionBtn" onClick={() => insertText(aiSuggestion.suggestedReply ?? "")}>Use</button>
+              <button className="mobileActionBtn" onClick={() => setDraft(aiSuggestion.suggestedReply ?? "")}>Edit</button>
+              <button className="mobileQuickBtn">Ignore</button>
+            </div>
+          </div>
+        )}
+        <div className="mobileComposerTools">
+          <button className="mobileFileBtn" onClick={() => imageInputRef.current?.click()} aria-label="Upload image"><ImagePlus size={20} /></button>
+          <button className="mobileFileBtn" onClick={() => fileInputRef.current?.click()} aria-label="Upload file"><FileUp size={20} /></button>
+          <button className="mobileQuickBtn" onClick={() => setQuickOpen(true)}>Quick replies</button>
+          <button className="mobileQuickBtn" onClick={() => aiSuggestion?.suggestedReply && insertText(aiSuggestion.suggestedReply)}>AI</button>
+          <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(event) => void onPickFile(event.target.files?.[0])} />
+          <input ref={fileInputRef} type="file" hidden onChange={(event) => void onPickFile(event.target.files?.[0])} />
+        </div>
+        <div className="mobileComposer">
+          <textarea
+            ref={textareaRef}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+            placeholder="Type reply"
+            rows={1}
+          />
+          <button className="mobileSendBtn" onClick={submitDraft} disabled={!draft.trim() || sendMutation.isPending} aria-label="Send">
+            {sendMutation.isPending ? <RefreshCw size={18} /> : <Send size={19} />}
+          </button>
+        </div>
+      </section>
+
+      {quickOpen && (
+        <div className="mobileSheetBackdrop" onClick={() => setQuickOpen(false)}>
+          <section className="mobileSheet" onClick={(event) => event.stopPropagation()}>
+            <div className="mobileSheetHeader"><strong>Quick replies</strong><button className="mobileIconBtn" onClick={() => setQuickOpen(false)}><X size={18} /></button></div>
+            {quickReplies.slice(0, 20).map((reply) => <button className="mobileSheetItem" key={reply.id} onClick={() => { insertText(reply.content); setQuickOpen(false); }}>{reply.name}<span>{reply.content}</span></button>)}
+          </section>
+        </div>
+      )}
+
+      {profileOpen && conversation && (
+        <div className="mobileSheetBackdrop" onClick={() => setProfileOpen(false)}>
+          <section className="mobileProfileSheet" onClick={(event) => event.stopPropagation()}>
+            <div className="mobileSheetHeader"><strong>Customer</strong><button className="mobileIconBtn" onClick={() => setProfileOpen(false)}><X size={18} /></button></div>
+            <div className="mobileCustomerHeader"><Avatar customer={conversation.customer} channel={conversation.channel} /><div><div className="mobileCustomerName">{conversation.customer.displayName ?? "New customer"}</div><div className="mobileMeta">{conversation.customer.primaryPhone ?? conversation.customer.primaryEmail ?? channelNames[conversation.channel]}</div></div></div>
+            <Info title="Phone" value={conversation.customer.primaryPhone} />
+            <Info title="Email" value={conversation.customer.primaryEmail} />
+            <Info title="Owner" value={conversation.assignedTo?.name ?? "Unassigned"} />
+            <Info title="Last contact" value={conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleString() : ""} />
+            <div className="mobilePanel"><h2>Identities</h2>{conversation.customer.identities?.map((identity) => <p className="mobileMeta" key={identity.id}>{channelNames[identity.channel]} · {identity.phone ?? identity.email ?? identity.displayName ?? identity.externalId}</p>)}</div>
+            <div className="mobilePanel"><h2>Tags</h2><p>{conversation.customer.tags?.map((item) => item.tag.name).join(", ") || "No tags"}</p></div>
+            <div className="mobilePanel"><h2>Notes</h2><textarea rows={4} defaultValue={conversation.customer.notes?.[0]?.body ?? ""} placeholder="Customer notes" /></div>
+          </section>
+        </div>
+      )}
+
+      {offline && <div className="mobileOffline">Network disconnected. Reconnecting...</div>}
+    </main>
+  );
+}
+
+function MessageRow({ message, previous, onCopy, onRetry }: { message: Message; previous?: Message; onCopy: () => void; onRetry: () => void }) {
+  const showDate = !previous || new Date(previous.sentAt).toDateString() !== new Date(message.sentAt).toDateString();
+  const failed = message.status === "failed" || Boolean(message.failedReason || message.providerErrorMessage);
+  const direction = message.direction === "outbound" ? "outbound" : "inbound";
+  const attachments = normalizedAttachments(message);
+  return (
+    <>
+      {showDate && <div className="mobileDateDivider"><span>{new Date(message.sentAt).toLocaleDateString()}</span></div>}
+      <article className={`mobileBubble ${direction} ${failed ? "failed" : ""}`} onDoubleClick={onCopy}>
+        {messageText(message) && <p>{messageText(message)}</p>}
+        {attachments.map((attachment) => <AttachmentPreview attachment={attachment} key={attachment.id} />)}
+        <div className="mobileBubbleMeta">
+          <span>{formatTime(message.sentAt)}</span>
+          <span>{message.channel ? channelNames[message.channel] : ""}</span>
+          <span>{statusLabel(message.status)}</span>
+        </div>
+        {failed && (
+          <div className="mobileFailure">
+            <span>{message.failedReason ?? message.providerErrorMessage ?? "Send failed"}</span>
+            <button onClick={onRetry}>Retry</button>
+          </div>
+        )}
+        <button className="mobileCopyBtn" onClick={onCopy} title="Copy"><Copy size={13} /></button>
+      </article>
+    </>
+  );
+}
+
+function messageText(message: Message) {
+  return message.textContent ?? message.text_content ?? message.text ?? "";
+}
+
+function normalizedAttachments(message: Message): Attachment[] {
+  const persisted = (message.attachments ?? []).map((attachment) => ({
+    ...attachment,
+    url: attachment.url ?? attachment.fileUrl ?? "",
+    type: attachment.type ?? attachmentKind(attachment.mimeType, attachment.fileName),
+  })).filter((attachment) => attachment.url);
+  const raw = message.rawEvent as Record<string, unknown> | undefined;
+  const candidates = collectAttachmentCandidates(raw);
+  const extracted = candidates
+    .map((candidate, index) => attachmentFromRaw(candidate, `${message.id}-raw-${index}`))
+    .filter((attachment): attachment is Attachment => Boolean(attachment?.url));
+  const byUrl = new Map<string, Attachment>();
+  for (const attachment of [...persisted, ...extracted]) byUrl.set(attachment.url, attachment);
+  return [...byUrl.values()];
+}
+
+function collectAttachmentCandidates(value: unknown): Record<string, unknown>[] {
+  if (!value || typeof value !== "object") return [];
+  const object = value as Record<string, unknown>;
+  const results: Record<string, unknown>[] = [];
+  if (typeof object.url === "string" || typeof object.file_url === "string" || typeof object.preview_url === "string" || typeof object.external_url === "string") {
+    results.push(object);
+  }
+  for (const child of Object.values(object)) {
+    if (Array.isArray(child)) {
+      for (const item of child) results.push(...collectAttachmentCandidates(item));
+    } else if (child && typeof child === "object") {
+      results.push(...collectAttachmentCandidates(child));
+    }
+  }
+  return results.slice(0, 12);
+}
+
+function attachmentFromRaw(raw: Record<string, unknown>, id: string): Attachment | null {
+  const url = stringValue(raw.url) ?? stringValue(raw.file_url) ?? stringValue(raw.preview_url) ?? stringValue(raw.external_url);
+  if (!url) return null;
+  const mimeType = stringValue(raw.mime_type) ?? stringValue(raw.mimeType) ?? stringValue(raw.content_type);
+  const fileName = stringValue(raw.file_name) ?? stringValue(raw.filename) ?? stringValue(raw.name) ?? stringValue(raw.title);
+  return { id, url, fileName, mimeType, type: attachmentKind(mimeType, fileName) };
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" && value ? value : null;
+}
+
+function attachmentKind(mimeType?: string | null, fileName?: string | null): Attachment["type"] {
+  const probe = `${mimeType ?? ""} ${fileName ?? ""}`.toLowerCase();
+  if (probe.includes("image") || /\.(png|jpe?g|gif|webp|heic)(\?|$)/.test(probe)) return "image";
+  if (probe.includes("audio") || /\.(mp3|m4a|wav|ogg|aac)(\?|$)/.test(probe)) return "audio";
+  if (probe.includes("video") || /\.(mp4|mov|webm|avi)(\?|$)/.test(probe)) return "video";
+  return "file";
+}
+
+function statusLabel(status: string) {
+  if (status === "queued") return "sending";
+  if (status === "sent") return "sent";
+  if (status === "delivered") return "delivered";
+  if (status === "read") return "read";
+  if (status === "failed") return "failed";
+  return status;
+}
+
 function MobileTop({ title, metrics, loading, onRefresh }: { title: string; metrics: { unread: number; waiting: number; todayNew: number }; loading: boolean; onRefresh: () => void }) {
   return (
     <header className="mobileTop">
@@ -594,6 +1031,15 @@ function Avatar({ customer, channel }: { customer: Customer; channel: Channel })
 
 function AttachmentPreview({ attachment }: { attachment: Attachment }) {
   const Icon = attachment.type === "image" ? ImageIcon : attachment.type === "audio" ? Mic : attachment.type === "video" ? Video : FileText;
+  if (attachment.type === "image") {
+    return <a className="mobileAttachmentImage" href={attachment.url} target="_blank" rel="noreferrer"><img src={attachment.url} alt={attachment.fileName ?? "image attachment"} /></a>;
+  }
+  if (attachment.type === "audio") {
+    return <audio className="mobileAttachmentPlayer" src={attachment.url} controls preload="metadata" />;
+  }
+  if (attachment.type === "video") {
+    return <video className="mobileAttachmentPlayer" src={attachment.url} controls preload="metadata" />;
+  }
   return <a className="mobileAttachment" href={attachment.url} target="_blank" rel="noreferrer"><Icon size={15} /> {attachment.fileName ?? attachment.type}</a>;
 }
 
@@ -637,8 +1083,9 @@ function formatTime(value?: string | null) {
 }
 
 function attachmentText(message?: Message) {
-  if (!message?.attachments?.length) return "No message";
-  return `[${message.attachments[0].type}]`;
+  const attachments = message ? normalizedAttachments(message) : [];
+  if (!attachments.length) return "No message";
+  return `[${attachments[0].type}]`;
 }
 
 function channelIcon(channel: Channel) {
@@ -659,3 +1106,4 @@ function playBeep() {
   const audio = new Audio("data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=");
   audio.play().catch(() => undefined);
 }
+
