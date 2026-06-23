@@ -1,6 +1,9 @@
 import { NextRequest } from "next/server";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "https://coolfix-omni-api.onrender.com/api";
+const RAW_API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "https://coolfix-omni-api.onrender.com/api";
+const API_BASE = RAW_API_BASE.replace(/\/$/, "").endsWith("/api")
+  ? RAW_API_BASE.replace(/\/$/, "")
+  : `${RAW_API_BASE.replace(/\/$/, "")}/api`;
 
 type RouteContext = {
   params: Promise<{ path: string[] }>;
@@ -8,7 +11,7 @@ type RouteContext = {
 
 async function proxy(request: NextRequest, context: RouteContext) {
   const { path } = await context.params;
-  const target = new URL(`${API_BASE.replace(/\/$/, "")}/${path.join("/")}`);
+  const target = new URL(`${API_BASE}/${path.join("/")}`);
   target.search = request.nextUrl.search;
 
   const init: RequestInit = {
