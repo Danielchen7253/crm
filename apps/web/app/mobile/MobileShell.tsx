@@ -886,7 +886,7 @@ function MessageRow({ message, previous, onCopy, onRetry }: { message: Message; 
         </div>
         {failed && (
           <div className="mobileFailure">
-            <span>{message.failedReason ?? message.providerErrorMessage ?? "Send failed"}</span>
+            <span>{failureText(message)}</span>
             <button onClick={onRetry}>Retry</button>
           </div>
         )}
@@ -898,6 +898,17 @@ function MessageRow({ message, previous, onCopy, onRetry }: { message: Message; 
 
 function messageText(message: Message) {
   return message.textContent ?? message.text_content ?? message.text ?? "";
+}
+
+function failureText(message: Message) {
+  const reason = message.failedReason ?? message.providerErrorMessage ?? "Send failed";
+  if (reason.includes("MESSENGER_PAGE_ACCESS_TOKEN")) {
+    return "Messenger is not connected. Add a valid Page Access Token, then retry.";
+  }
+  if (reason.toLowerCase().includes("access token") && reason.toLowerCase().includes("expired")) {
+    return "Messenger token expired. Reconnect Messenger, then retry.";
+  }
+  return reason;
 }
 
 function normalizedAttachments(message: Message): Attachment[] {

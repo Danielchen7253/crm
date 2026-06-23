@@ -67,7 +67,7 @@ export class ChannelSenderService {
 
   private async sendMessenger(conversation: ConversationWithCustomer, message: Message): Promise<DeliveryResult> {
     const token = process.env.MESSENGER_PAGE_ACCESS_TOKEN ?? process.env.PAGE_ACCESS_TOKEN ?? process.env.META_PAGE_ACCESS_TOKEN;
-    if (!token) return this.missing("meta-messenger", "MESSENGER_PAGE_ACCESS_TOKEN");
+    if (!token) return this.failed("meta-messenger", "Messenger is not connected. Add MESSENGER_PAGE_ACCESS_TOKEN in Render and retry.");
 
     const recipientId = conversation.identity?.externalId ?? conversation.externalThreadId;
     if (!recipientId) return this.failed("meta-messenger", "Missing Messenger recipient id");

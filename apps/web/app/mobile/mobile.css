@@ -404,6 +404,7 @@ body {
   border-color: #fecaca;
   background: #fff1f2;
   color: var(--mobile-text);
+  max-width: min(78%, calc(100vw - 74px));
 }
 
 .mobileBubble p {
@@ -432,22 +433,31 @@ body {
   color: rgba(255, 255, 255, 0.72);
 }
 
+.mobileBubble.outbound.failed .mobileBubbleMeta {
+  color: #64748b;
+}
+
 .mobileFailure {
-  display: grid;
-  gap: 6px;
-  margin-top: 7px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid #fecaca;
   color: var(--mobile-red);
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.25;
 }
 
 .mobileFailure button {
-  width: fit-content;
-  min-height: 30px;
+  flex: 0 0 auto;
+  min-height: 28px;
   border: 1px solid #fecaca;
   border-radius: 8px;
   background: #fff;
   color: var(--mobile-red);
   font-weight: 800;
+  padding: 4px 8px;
 }
 
 .mobileCopyBtn {
