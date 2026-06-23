@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
-import { MessageDirection, MessageStatus, MessageType } from "@prisma/client";
+import { AiAction, MessageDirection, MessageStatus, MessageType } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { RealtimeGateway } from "../realtime/realtime.gateway";
 import { ChannelSenderService } from "./channel-sender.service";
@@ -28,6 +28,7 @@ export class MessagesController {
       include: { customer: { include: { identities: true } }, identity: true },
     });
 
+    const outboundText = body.text_content ?? body.text;
     const message = await this.prisma.message.create({
       data: {
         conversationId: conversation.id,
@@ -40,8 +41,8 @@ export class MessagesController {
         type: (body.content_type as MessageType | undefined) ?? (body.type as MessageType | undefined) ?? MessageType.text,
         contentType: (body.content_type as MessageType | undefined) ?? (body.type as MessageType | undefined) ?? MessageType.text,
         status: MessageStatus.queued,
-        text: body.text_content ?? body.text,
-        textContent: body.text_content ?? body.text,
+        text: outboundText,
+        textContent: outboundText,
         sentAt: new Date(),
       },
     });
@@ -65,6 +66,14 @@ export class MessagesController {
     await this.prisma.conversation.update({
       where: { id: conversation.id },
       data: { lastMessageAt: new Date(), unreadCount: 0 },
+    });
+
+    await this.recordAiLearningSample({
+      conversationId: conversation.id,
+      messageId: deliveredMessage.id,
+      aiReplyLogId: body.ai_reply_log_id ?? body.aiReplyLogId,
+      finalText: outboundText,
+      enabled: body.learning_sample !== false,
     });
 
     this.realtime.emitInboxEvent("message.created", {
@@ -130,6 +139,49 @@ export class MessagesController {
     });
 
     return { message: deliveredMessage, delivery: delivery.status, failedReason: delivery.failedReason };
+  }
+
+  private async recordAiLearningSample(input: {
+    conversationId: string;
+    messageId: string;
+    aiReplyLogId?: string;
+    finalText?: string;
+    enabled: boolean;
+  }) {
+    const finalText = String(input.finalText ?? "").trim();
+    if (!input.enabled || !finalText) return;
+
+    if (input.aiReplyLogId) {
+      await this.prisma.aiReplyLog
+        .update({
+          where: { id: input.aiReplyLogId },
+          data: {
+            acceptedAt: new Date(),
+            finalText,
+          },
+        })
+        .catch(() => undefined);
+      return;
+    }
+
+    await this.prisma.aiReplyLog.create({
+      data: {
+        messageId: input.messageId,
+        conversationId: input.conversationId,
+        detectedLanguage: "unknown",
+        intent: "agent_manual_reply",
+        suggestedReply: "",
+        confidence: 1,
+        action: AiAction.no_reply,
+        acceptedAt: new Date(),
+        finalText,
+        rawResponse: {
+          source: "mobile_composer",
+          learning: "agent_manual_reply_without_ai_suggestion",
+          outboundMessageId: input.messageId,
+        },
+      },
+    });
   }
 
   @Post("upload")

@@ -78,7 +78,15 @@ type Message = {
   failedReason?: string | null;
   attachments?: Attachment[];
   rawEvent?: unknown;
-  aiReplyLogs?: { suggestedReply?: string | null; confidence?: number | null; action?: string | null; detectedLanguage?: string | null }[];
+  aiReplyLogs?: {
+    id?: string;
+    suggestedReply?: string | null;
+    confidence?: number | null;
+    action?: string | null;
+    detectedLanguage?: string | null;
+    acceptedAt?: string | null;
+    finalText?: string | null;
+  }[];
 };
 
 type MessagePage = {
@@ -447,7 +455,7 @@ export default function MobileShell({ mode }: { mode: Mode }) {
               {task.done ? <CheckCircle2 size={22} /> : <Circle size={22} />}
               <div className="mobileCardBody">
                 <div className="mobileName">{task.title}</div>
-                <div className="mobileMeta">{task.customerName ?? "No customer"} · {task.dueAt}</div>
+                <div className="mobileMeta">{task.customerName ?? "No customer"} 璺?{task.dueAt}</div>
               </div>
             </button>
           ))}
@@ -505,6 +513,8 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showNewMessage, setShowNewMessage] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [attachmentOpen, setAttachmentOpen] = useState(false);
+  const [activeAiLogId, setActiveAiLogId] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [typing, setTyping] = useState(false);
   const [offline, setOffline] = useState(false);
@@ -585,7 +595,7 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
   const conversation = conversationQuery.data;
   const aiSuggestion = useMemo(() => {
     const logs = [...messages].reverse().flatMap((message) => message.aiReplyLogs ?? []);
-    return logs.find((log) => log.action !== "no_reply" && log.suggestedReply);
+    return logs.find((log) => log.action !== "no_reply" && log.suggestedReply && !log.finalText);
   }, [messages]);
 
   const quickReplies = useMemo(() => {
@@ -604,6 +614,8 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
         content_type: "text",
         text_content: text,
         attachment_ids: [],
+        ai_reply_log_id: activeAiLogId,
+        learning_sample: true,
       };
       return api<{ message: Message; failedReason?: string }>("/messages/send", token, {
         method: "POST",
@@ -613,6 +625,7 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
     onMutate: async (text) => {
       await queryClient.cancelQueries({ queryKey: ["mobile-messages", conversationId] });
       const previous = queryClient.getQueryData<{ pages: MessagePage[]; pageParams: unknown[] }>(["mobile-messages", conversationId]);
+      const previousAiLogId = activeAiLogId;
       const tempMessage: Message = {
         id: `temp-${Date.now()}`,
         temp_id: `temp-${Date.now()}`,
@@ -637,12 +650,14 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
         return { ...old, pages };
       });
       setDraft("");
+      setActiveAiLogId(null);
       requestAnimationFrame(() => virtuosoRef.current?.scrollToIndex({ index: messages.length, align: "end", behavior: "smooth" }));
-      return { previous, text };
+      return { previous, text, previousAiLogId };
     },
     onError: (_error, _text, context) => {
       if (context?.previous) queryClient.setQueryData(["mobile-messages", conversationId], context.previous);
       if (context?.text) setDraft(context.text);
+      if (context?.previousAiLogId) setActiveAiLogId(context.previousAiLogId);
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["mobile-messages", conversationId] });
@@ -705,6 +720,15 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
     if (isAtBottom) requestAnimationFrame(() => virtuosoRef.current?.scrollToIndex({ index: messages.length - 1, align: "end" }));
   }, [conversationId, isAtBottom, messages.length]);
 
+  useEffect(() => {
+    if (!aiSuggestion?.suggestedReply || !aiSuggestion.id) return;
+    setDraft((current) => {
+      if (current.trim()) return current;
+      setActiveAiLogId(aiSuggestion.id ?? null);
+      return aiSuggestion.suggestedReply ?? "";
+    });
+  }, [aiSuggestion?.id, aiSuggestion?.suggestedReply]);
+
   function submitDraft() {
     const text = draft.trim();
     if (!text || sendMutation.isPending) return;
@@ -713,6 +737,13 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
 
   function insertText(text: string) {
     setDraft((current) => (current ? `${current}\n${text}` : text));
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }
+
+  function useAiSuggestion() {
+    if (!aiSuggestion?.suggestedReply) return;
+    setDraft(aiSuggestion.suggestedReply);
+    setActiveAiLogId(aiSuggestion.id ?? null);
     requestAnimationFrame(() => textareaRef.current?.focus());
   }
 
@@ -757,7 +788,7 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
         {conversation ? <button className="mobileAvatarButton" onClick={() => setProfileOpen(true)}><Avatar customer={conversation.customer} channel={conversation.channel} /></button> : <div className="mobileAvatar phone">C</div>}
         <button className="mobileChatInfo mobileChatInfoButton" onClick={() => setProfileOpen(true)}>
           <div className="mobileCustomerName">{conversation?.customer.displayName ?? conversation?.customer.primaryPhone ?? "Loading customer"}</div>
-          <div className="mobileMeta">{conversation ? `${channelNames[conversation.channel]} · ${formatTime(conversation.lastMessageAt)}` : "Syncing messages..."}</div>
+          <div className="mobileMeta">{conversation ? `${channelNames[conversation.channel]} 璺?${formatTime(conversation.lastMessageAt)}` : "Syncing messages..."}</div>
         </button>
         <button className="mobileIconBtn" onClick={() => setProfileOpen(true)} aria-label="More"><MoreVertical size={20} /></button>
       </header>
@@ -803,22 +834,12 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
       </section>
 
       <section ref={composerRef} className="mobileComposerWrap">
-        {aiSuggestion?.suggestedReply && (
-          <div className="mobileAi">
-            <div className="mobileAiTitle"><Sparkles size={14} /> AI suggestion · {Math.round((aiSuggestion.confidence ?? 0) * 100)}%</div>
-            <p>{aiSuggestion.suggestedReply}</p>
-            <div className="mobileActions">
-              <button className="mobileActionBtn" onClick={() => insertText(aiSuggestion.suggestedReply ?? "")}>Use</button>
-              <button className="mobileActionBtn" onClick={() => setDraft(aiSuggestion.suggestedReply ?? "")}>Edit</button>
-              <button className="mobileQuickBtn">Ignore</button>
-            </div>
-          </div>
-        )}
         <div className="mobileComposerTools">
-          <button className="mobileFileBtn" onClick={() => imageInputRef.current?.click()} aria-label="Upload image"><ImagePlus size={20} /></button>
-          <button className="mobileFileBtn" onClick={() => fileInputRef.current?.click()} aria-label="Upload file"><FileUp size={20} /></button>
-          <button className="mobileQuickBtn" onClick={() => setQuickOpen(true)}>Quick replies</button>
-          <button className="mobileQuickBtn" onClick={() => aiSuggestion?.suggestedReply && insertText(aiSuggestion.suggestedReply)}>AI</button>
+          <button className="mobileToolBtn" onClick={() => setAttachmentOpen(true)} aria-label="Add attachment"><Paperclip size={18} /> Attachment</button>
+          <button className={aiSuggestion?.suggestedReply ? "mobileToolBtn active" : "mobileToolBtn"} onClick={useAiSuggestion} aria-label="Use AI suggestion">
+            <Sparkles size={18} /> AI
+            <span>{aiSuggestion?.suggestedReply ? `${Math.round((aiSuggestion.confidence ?? 0) * 100)}%` : "No score"}</span>
+          </button>
           <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(event) => void onPickFile(event.target.files?.[0])} />
           <input ref={fileInputRef} type="file" hidden onChange={(event) => void onPickFile(event.target.files?.[0])} />
         </div>
@@ -838,6 +859,18 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
         </div>
       </section>
 
+      {attachmentOpen && (
+        <div className="mobileSheetBackdrop" onClick={() => setAttachmentOpen(false)}>
+          <section className="mobileSheet" onClick={(event) => event.stopPropagation()}>
+            <div className="mobileSheetHeader"><strong>Add attachment</strong><button className="mobileIconBtn" onClick={() => setAttachmentOpen(false)}><X size={18} /></button></div>
+            <button className="mobileSheetItem" onClick={() => { imageInputRef.current?.click(); setAttachmentOpen(false); }}><ImageIcon size={18} /> Image<span>Choose from photos or computer</span></button>
+            <button className="mobileSheetItem" onClick={() => { fileInputRef.current?.setAttribute("accept", "audio/*"); fileInputRef.current?.click(); setAttachmentOpen(false); }}><Mic size={18} /> Audio<span>Voice or audio file</span></button>
+            <button className="mobileSheetItem" onClick={() => { fileInputRef.current?.setAttribute("accept", "video/*"); fileInputRef.current?.click(); setAttachmentOpen(false); }}><Video size={18} /> Video<span>Customer site video or product video</span></button>
+            <button className="mobileSheetItem" onClick={() => { fileInputRef.current?.removeAttribute("accept"); fileInputRef.current?.click(); setAttachmentOpen(false); }}><FileText size={18} /> File<span>PDF, Word, Excel, and more</span></button>
+            <button className="mobileSheetItem" onClick={() => { setQuickOpen(true); setAttachmentOpen(false); }}><Bot size={18} /> Quick reply<span>Insert saved reply text</span></button>
+          </section>
+        </div>
+      )}
       {quickOpen && (
         <div className="mobileSheetBackdrop" onClick={() => setQuickOpen(false)}>
           <section className="mobileSheet" onClick={(event) => event.stopPropagation()}>
@@ -856,7 +889,7 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
             <Info title="Email" value={conversation.customer.primaryEmail} />
             <Info title="Owner" value={conversation.assignedTo?.name ?? "Unassigned"} />
             <Info title="Last contact" value={conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleString() : ""} />
-            <div className="mobilePanel"><h2>Identities</h2>{conversation.customer.identities?.map((identity) => <p className="mobileMeta" key={identity.id}>{channelNames[identity.channel]} · {identity.phone ?? identity.email ?? identity.displayName ?? identity.externalId}</p>)}</div>
+            <div className="mobilePanel"><h2>Identities</h2>{conversation.customer.identities?.map((identity) => <p className="mobileMeta" key={identity.id}>{channelNames[identity.channel]} 璺?{identity.phone ?? identity.email ?? identity.displayName ?? identity.externalId}</p>)}</div>
             <div className="mobilePanel"><h2>Tags</h2><p>{conversation.customer.tags?.map((item) => item.tag.name).join(", ") || "No tags"}</p></div>
             <div className="mobilePanel"><h2>Notes</h2><textarea rows={4} defaultValue={conversation.customer.notes?.[0]?.body ?? ""} placeholder="Customer notes" /></div>
           </section>
@@ -911,7 +944,7 @@ function failureText(message: Message) {
   if (reason.includes("(#100)") && reason.toLowerCase().includes("recipient")) {
     return "Old Messenger recipient was not linked. New replies now use the customer PSID.";
   }
-  if (reason.includes("(#10)") || reason.toLowerCase().includes("messaging window") || reason.includes("消息发送时间窗")) {
+  if (reason.includes("(#10)") || reason.toLowerCase().includes("messaging window")) {
     return "Outside Messenger 24-hour reply window. Wait for the customer to message again, then reply.";
   }
   return reason;

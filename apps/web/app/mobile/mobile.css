@@ -575,7 +575,7 @@ body {
   right: 0;
   bottom: 0;
   left: 0;
-  min-height: calc(98px + env(safe-area-inset-bottom));
+  min-height: calc(104px + env(safe-area-inset-bottom));
   max-height: calc(58dvh - env(safe-area-inset-bottom));
   background: #fff;
   border-top: 1px solid var(--mobile-line);
@@ -593,9 +593,40 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  overflow-x: auto;
+  overflow-x: hidden;
   padding: 8px 10px 0;
   scrollbar-width: none;
+}
+
+.mobileToolBtn {
+  min-height: 40px;
+  flex: 1;
+  border: 1px solid var(--mobile-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--mobile-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.mobileToolBtn span {
+  color: var(--mobile-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.mobileToolBtn.active {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.mobileToolBtn.active span {
+  color: #1d4ed8;
 }
 
 .mobileComposer {
