@@ -257,7 +257,7 @@
 .mobileChat {
   position: fixed;
   inset: 0;
-  width: 100%;
+  width: 100vw;
   max-width: 100vw;
   height: 100dvh;
   min-height: 100dvh;
@@ -278,6 +278,9 @@
   background: rgba(255, 255, 255, 0.97);
   border-bottom: 1px solid var(--mobile-line);
   min-width: 0;
+  width: 100%;
+  max-width: 100vw;
+  overflow: hidden;
 }
 
 .mobileChatInfo {
@@ -286,21 +289,33 @@
 }
 
 .mobileMessages {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 12px 10px 16px;
   -webkit-overflow-scrolling: touch;
+  width: 100%;
+  max-width: 100vw;
 }
 
 .mobileBubble {
-  max-width: 84%;
+  display: block;
+  width: fit-content;
+  max-width: calc(100vw - 48px);
   min-width: 0;
   border-radius: 8px;
   padding: 9px 10px;
   margin-bottom: 8px;
   background: #fff;
   border: 1px solid var(--mobile-line);
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  box-sizing: border-box;
+  align-self: flex-start;
 }
 
 .mobileEmptyChat {
@@ -316,14 +331,18 @@
 
 .mobileBubble.outbound {
   margin-left: auto;
+  margin-right: 0;
   background: #dcfce7;
   border-color: #bbf7d0;
+  align-self: flex-end;
 }
 
 .mobileBubble p {
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
 }
 
 .mobileBubble small {
@@ -332,14 +351,21 @@
   color: var(--mobile-muted);
   font-size: 11px;
   text-align: right;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .mobileAttachment {
-  display: block;
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
   margin-top: 6px;
   color: var(--mobile-blue);
   font-weight: 800;
   text-decoration: none;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .mobileAi {
@@ -381,6 +407,9 @@
   border-top: 1px solid var(--mobile-line);
   padding-bottom: env(safe-area-inset-bottom);
   z-index: 12;
+  width: 100%;
+  max-width: 100vw;
+  overflow: hidden;
 }
 
 .mobileQuickReplies {
@@ -390,6 +419,9 @@
 .mobileComposer {
   gap: 8px;
   padding: 8px 10px 10px;
+  width: 100%;
+  max-width: 100vw;
+  box-sizing: border-box;
 }
 
 .mobileComposer textarea {
@@ -509,7 +541,12 @@
     left: 50%;
     right: auto;
     width: min(460px, 100vw);
+    max-width: min(460px, 100vw);
     transform: translateX(-50%);
+  }
+
+  .mobileBubble {
+    max-width: 360px;
   }
 
   .mobileBottomNav {
