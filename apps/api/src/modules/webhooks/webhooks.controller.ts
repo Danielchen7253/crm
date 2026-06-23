@@ -12,6 +12,16 @@ export class WebhooksController {
     return "invalid";
   }
 
+  @Get("whatsapp")
+  verifyWhatsApp(
+    @Query("hub.mode") mode?: string,
+    @Query("hub.verify_token") token?: string,
+    @Query("hub.challenge") challenge?: string,
+  ) {
+    if (mode === "subscribe" && token === process.env.META_VERIFY_TOKEN) return challenge;
+    return "invalid";
+  }
+
   @Post("website-chat")
   ingestWebsiteChat(@Body() body: any) {
     return this.ingest.ingestInbound({
@@ -59,6 +69,15 @@ export class WebhooksController {
       await this.ingest.ingestInbound(message);
     }
     return { ok: true, count: messages.length };
+  }
+
+  @Post("whatsapp")
+  async ingestWhatsApp(@Body() body: any) {
+    const messages = this.normalizeMetaMessages(body).filter((message) => message.channel === "whatsapp");
+    for (const message of messages) {
+      await this.ingest.ingestInbound(message);
+    }
+    return { ok: true, channel: "whatsapp", count: messages.length };
   }
 
   @Post("email")
@@ -129,7 +148,7 @@ export class WebhooksController {
             senderExternalId: waMessage.from,
             senderName: change.value?.contacts?.[0]?.profile?.name,
             phone: waMessage.from,
-            text: waMessage.text?.body,
+            text: this.whatsAppText(waMessage),
             timestamp: waMessage.timestamp ? new Date(Number(waMessage.timestamp) * 1000).toISOString() : undefined,
             attachments: this.normalizeWhatsAppAttachments(waMessage),
             rawPayload: change,
@@ -152,5 +171,17 @@ export class WebhooksController {
         fileName: attachment.filename,
       },
     ];
+  }
+
+  private whatsAppText(message: any) {
+    if (message.text?.body) return message.text.body;
+    if (message.image?.caption) return message.image.caption;
+    if (message.video?.caption) return message.video.caption;
+    if (message.document?.caption) return message.document.caption;
+    if (message.type === "audio") return "[WhatsApp voice message]";
+    if (message.type === "image") return "[WhatsApp image]";
+    if (message.type === "video") return "[WhatsApp video]";
+    if (message.type === "document") return message.document?.filename ? `[WhatsApp file] ${message.document.filename}` : "[WhatsApp file]";
+    return `[WhatsApp ${message.type ?? "message"}]`;
   }
 }

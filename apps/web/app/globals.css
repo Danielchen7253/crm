@@ -180,6 +180,21 @@ h2 {
   flex-basis: 48px;
 }
 
+.avatarImage {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #e6eaf0;
+}
+
+.avatarImage.large {
+  width: 48px;
+  height: 48px;
+  flex-basis: 48px;
+}
+
 .avatar.messenger {
   background: var(--blue);
 }
@@ -272,6 +287,14 @@ h2 {
   font-size: 12px;
 }
 
+.attachment {
+  display: inline-flex;
+  margin-top: 8px;
+  color: var(--blue);
+  font-weight: 700;
+  text-decoration: none;
+}
+
 .composer {
   border-top: 1px solid var(--line);
   padding: 12px;
@@ -339,6 +362,18 @@ h2 {
   align-items: center;
   gap: 8px;
   min-height: 34px;
+}
+
+.statusLine,
+.emptyState {
+  padding: 18px;
+  color: var(--muted);
+}
+
+.emptyState {
+  display: grid;
+  place-items: center;
+  height: 100%;
 }
 
 @media (max-width: 920px) {
