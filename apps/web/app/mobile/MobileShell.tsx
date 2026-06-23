@@ -908,6 +908,9 @@ function failureText(message: Message) {
   if (reason.toLowerCase().includes("access token") && reason.toLowerCase().includes("expired")) {
     return "Messenger token expired. Reconnect Messenger, then retry.";
   }
+  if (reason.includes("(#10)") || reason.toLowerCase().includes("messaging window") || reason.includes("消息发送时间窗")) {
+    return "Outside Messenger 24-hour reply window. Wait for the customer to message again, then reply.";
+  }
   return reason;
 }
 
