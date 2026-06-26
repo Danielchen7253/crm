@@ -6,7 +6,9 @@ const statusPayload = {
   docs: {
     health: "/api/auth/me",
     conversations: "/api/conversations",
-    twilioIncoming: "/api/twilio/incoming",
+    twilioIncoming: "/api/webhooks/twilio/incoming (or /api/twilio/incoming for legacy SMS)",
+    twilioStatus: "/api/webhooks/twilio/status",
+    smsWebhook: "/api/webhooks/twilio/sms",
   },
 };
 

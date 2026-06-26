@@ -19,6 +19,16 @@ export class WebhooksController {
     return "invalid";
   }
 
+  @Get("messenger")
+  verifyMessenger(
+    @Query("hub.mode") mode?: string,
+    @Query("hub.verify_token") token?: string,
+    @Query("hub.challenge") challenge?: string,
+  ) {
+    if (mode === "subscribe" && token === process.env.META_VERIFY_TOKEN) return challenge;
+    return "invalid";
+  }
+
   @Get("whatsapp")
   verifyWhatsApp(
     @Query("hub.mode") mode?: string,
@@ -26,6 +36,26 @@ export class WebhooksController {
     @Query("hub.challenge") challenge?: string,
   ) {
     if (mode === "subscribe" && token === process.env.META_VERIFY_TOKEN) return challenge;
+    return "invalid";
+  }
+
+  @Get("instagram")
+  verifyInstagram(
+    @Query("hub.mode") mode?: string,
+    @Query("hub.verify_token") token?: string,
+    @Query("hub.challenge") challenge?: string,
+  ) {
+    if (mode === "subscribe" && token === process.env.META_VERIFY_TOKEN) return challenge;
+    return "invalid";
+  }
+
+  @Get("website-chat")
+  verifyWebsiteChat() {
+    return "invalid";
+  }
+
+  @Get("website_chat")
+  verifyWebsiteChatLegacy() {
     return "invalid";
   }
 
@@ -75,6 +105,16 @@ export class WebhooksController {
     });
   }
 
+  @Post("website_chat")
+  ingestWebsiteChatLegacy(@Body() body: any) {
+    return this.ingestWebsiteChat(body);
+  }
+
+  @Post("website-chat")
+  ingestWebsiteChatLegacyDash(@Body() body: any) {
+    return this.ingestWebsiteChat(body);
+  }
+
   @Post("twilio/sms")
   ingestTwilioSms(@Body() body: any) {
     return this.ingest.ingestInbound({
@@ -92,24 +132,43 @@ export class WebhooksController {
     });
   }
 
+  @Post("twilio/incoming")
+  ingestTwilioIncomingLegacy(@Body() body: any) {
+    return this.ingestTwilioSms(body);
+  }
+
   @Post("twilio/status")
   async twilioStatus(@Body() body: any) {
-    const status = this.mapProviderStatus(body.MessageStatus);
+    const providerMessageId =
+      this.firstDefined(body?.MessageSid, body?.SmsSid, body?.messageSid, body?.Sid, body?.MessageStatus?.messageSid) ??
+      undefined;
+    const status = this.mapProviderStatus(this.firstDefined(body?.MessageStatus, body?.messageStatus, body?.status));
+    if (!providerMessageId) return { ok: true, matched: false, providerMessageId: undefined };
     const message = await this.prisma.message.findFirst({
-      where: { externalMessageId: body.MessageSid },
+      where: { externalMessageId: providerMessageId ?? undefined },
     });
 
-    if (!message) return { ok: true, matched: false, providerMessageId: body.MessageSid };
+    if (!message) return { ok: true, matched: false, providerMessageId };
+
+    const statusTimestamp =
+      this.parseTimestamp(this.firstDefined(body?.Timestamp, body?.timestamp, body?.DateUpdated, body?.DateCreated, body?.date_created, body?.date_updated));
+    const providerErrorMessage = body.ErrorMessage ?? body.ErrorText ?? body.error_message;
+    const providerErrorCode = this.firstDefined(
+      body.ErrorCode,
+      body.ErrorCodeSid,
+      body.error_code,
+      body.errorMessage?.code,
+    );
 
     const updated = await this.prisma.message.update({
       where: { id: message.id },
       data: {
         status,
-        providerErrorCode: body.ErrorCode ? String(body.ErrorCode) : undefined,
-        providerErrorMessage: body.ErrorMessage,
-        failedReason: body.ErrorMessage ?? (status === MessageStatus.failed ? body.MessageStatus : undefined),
-        deliveredAt: status === MessageStatus.delivered ? new Date() : undefined,
-        readAt: status === MessageStatus.read ? new Date() : undefined,
+        providerErrorCode: providerErrorCode ? String(providerErrorCode) : undefined,
+        providerErrorMessage,
+        failedReason: providerErrorMessage ?? (status === MessageStatus.failed ? String(status) : undefined),
+        deliveredAt: status === MessageStatus.delivered ? statusTimestamp : undefined,
+        readAt: status === MessageStatus.read ? statusTimestamp : undefined,
         rawEvent: body,
       },
       include: { attachments: true, aiReplyLogs: true },
@@ -121,7 +180,7 @@ export class WebhooksController {
       message: updated,
     });
 
-    return { ok: true, matched: true, providerMessageId: body.MessageSid, status };
+    return { ok: true, matched: true, providerMessageId, status };
   }
 
   @Post("meta")
@@ -141,6 +200,11 @@ export class WebhooksController {
       await this.ingest.ingestInbound(message);
     }
     return { ok: true, channel: "whatsapp", count: messages.length };
+  }
+
+  @Post("messenger")
+  async ingestMessenger(@Body() body: any) {
+    return this.ingestMeta(body);
   }
 
   @Post("instagram")
@@ -208,7 +272,7 @@ export class WebhooksController {
           senderName: profile?.name,
           senderAvatarUrl: profile?.avatarUrl,
           text: event.message.text,
-          timestamp: event.timestamp ? new Date(event.timestamp).toISOString() : undefined,
+          timestamp: this.parseTimestamp(event.timestamp)?.toISOString(),
           attachments: (event.message.attachments ?? []).map((attachment: any) => ({
             type: attachment.type === "image" ? "image" : attachment.type === "audio" ? "audio" : attachment.type === "video" ? "video" : "file",
             url: attachment.payload?.url,
@@ -227,16 +291,16 @@ export class WebhooksController {
             channelAccountExternalId: change.value?.metadata?.phone_number_id,
             externalThreadId: waMessage.from,
             externalMessageId: waMessage.id,
-            senderExternalId: waMessage.from,
-            senderName: contact?.profile?.name,
-            phone: waMessage.from,
-            text: this.whatsAppText(waMessage),
-            timestamp: waMessage.timestamp ? new Date(Number(waMessage.timestamp) * 1000).toISOString() : undefined,
-            attachments: this.normalizeWhatsAppAttachments(waMessage),
-            rawPayload: change,
-          });
-        }
+          senderExternalId: waMessage.from,
+          senderName: contact?.profile?.name,
+          phone: waMessage.from,
+          text: this.whatsAppText(waMessage),
+          timestamp: this.parseTimestamp(waMessage.timestamp)?.toISOString(),
+          attachments: this.normalizeWhatsAppAttachments(waMessage),
+          rawPayload: change,
+        });
       }
+    }
     }
 
     return normalized;
@@ -303,7 +367,9 @@ export class WebhooksController {
     for (const entry of entries) {
       for (const change of entry.changes ?? []) {
         for (const item of change.value?.statuses ?? []) {
-          const message = await this.prisma.message.findFirst({ where: { externalMessageId: item.id } });
+          const statusMessageId = this.firstDefined(item.id, item.message_id, item.wamid, item.message_sid, item.messageId);
+          if (!statusMessageId) continue;
+          const message = await this.prisma.message.findFirst({ where: { externalMessageId: statusMessageId } });
           if (!message) continue;
 
           const status = this.mapProviderStatus(item.status);
@@ -314,8 +380,8 @@ export class WebhooksController {
               providerErrorCode: item.errors?.[0]?.code ? String(item.errors[0].code) : undefined,
               providerErrorMessage: item.errors?.[0]?.message,
               failedReason: item.errors?.[0]?.message,
-              deliveredAt: status === MessageStatus.delivered ? new Date(Number(item.timestamp) * 1000) : undefined,
-              readAt: status === MessageStatus.read ? new Date(Number(item.timestamp) * 1000) : undefined,
+              deliveredAt: status === MessageStatus.delivered ? this.parseTimestamp(item.timestamp) : undefined,
+              readAt: status === MessageStatus.read ? this.parseTimestamp(item.timestamp) : undefined,
               rawEvent: change,
             },
             include: { attachments: true, aiReplyLogs: true },
@@ -334,8 +400,22 @@ export class WebhooksController {
     if (value === "read") return MessageStatus.read;
     if (value === "delivered") return MessageStatus.delivered;
     if (value === "sent" || value === "accepted") return MessageStatus.sent;
+    if (value === "received") return MessageStatus.received;
     if (value === "failed" || value === "undelivered") return MessageStatus.failed;
     if (value === "queued" || value === "sending") return MessageStatus.queued;
+    if (value === "rejected" || value === "canceled" || value === "cancelled") return MessageStatus.failed;
     return MessageStatus.sent;
+  }
+
+  private firstDefined<T>(...values: Array<T | undefined | null>) {
+    return values.find((value) => value !== undefined && value !== null && value !== "") as T | undefined;
+  }
+
+  private parseTimestamp(value?: string | number) {
+    if (!value && value !== 0) return undefined;
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return undefined;
+    const isSeconds = numeric < 1_000_000_000_000;
+    return new Date(isSeconds ? numeric * 1000 : numeric);
   }
 }
