@@ -6,6 +6,15 @@ This is the new formal system. The existing Flask CRM stays online while this
 system is developed and later receives migrated customers, identities, messages,
 website chat records, SMS records, and voice call records.
 
+## New Thread Handoff
+
+For a new Codex CRM project thread, start with:
+
+- [CRM_HANDOFF_NEW_THREAD.md](./CRM_HANDOFF_NEW_THREAD.md)
+
+That file records the current CRM decisions, repository/deploy links, channel
+status, plugins/tools discussed, and the next operational audit.
+
 ## Stack
 
 - Next.js + TypeScript frontend
