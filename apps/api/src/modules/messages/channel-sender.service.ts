@@ -212,28 +212,30 @@ export class ChannelSenderService {
       this.valueFromSettings(config?.settings, "websiteChat", "webhookToken", "token"),
     );
 
+    const outboundPayload = {
+      channel: "website_chat",
+      messageId: message.id,
+      conversationId: conversation.id,
+      customerId: conversation.customerId,
+      customerIdentityId: conversation.identityId,
+      sessionId,
+      visitorId: to?.visitorId ?? sessionId,
+      phone: to?.phone,
+      email: to?.email,
+      name: to?.displayName,
+      text,
+      sender: "agent",
+      to,
+      replyTo: to?.sessionId ?? conversation.externalThreadId,
+      toPhone: to?.phone,
+      toEmail: to?.email,
+    };
+
     const response = await this.sendJson(webhookUrl, {
       provider: "website-chat",
       method: "POST",
       authToken,
-      body: {
-        channel: "website_chat",
-        messageId: message.id,
-        conversationId: conversation.id,
-        customerId: conversation.customerId,
-        customerIdentityId: conversation.identityId,
-        sessionId,
-        visitorId: to?.visitorId ?? sessionId,
-        phone: to?.phone,
-        email: to?.email,
-        name: to?.displayName,
-        text,
-        sender: "agent",
-        to,
-        replyTo: to?.sessionId ?? conversation.externalThreadId,
-        toPhone: to?.phone,
-        toEmail: to?.email,
-      },
+      body: outboundPayload,
     });
 
     return this.parseWebhookResult(response, "website-chat");
@@ -296,6 +298,25 @@ export class ChannelSenderService {
       );
     }
 
+    const threadId = this.pickFirstNonEmpty(
+      conversation.externalThreadId,
+      conversation.identity?.externalId,
+      conversation.identity?.externalUserId,
+    );
+    const outboundPayload = {
+      channel: "email",
+      messageId: message.id,
+      conversationId: conversation.id,
+      customerId: conversation.customerId,
+      threadId,
+      from: fromAddress,
+      fromName: conversation.customer.displayName ?? "CoolFix Support",
+      to,
+      subject,
+      text,
+      date: new Date().toISOString(),
+    };
+
     const response = await this.sendJson(webhookUrl, {
       provider: "email-webhook",
       method: "POST",
@@ -304,23 +325,7 @@ export class ChannelSenderService {
         this.valueFromSettings(config?.settings, "email", "webhookToken", "token"),
         this.valueFromSettings(config?.settings, "smtp", "webhookToken", "token"),
       ),
-      body: {
-        channel: "email",
-        messageId: message.id,
-        conversationId: conversation.id,
-        customerId: conversation.customerId,
-        threadId: this.pickFirstNonEmpty(
-          conversation.externalThreadId,
-          conversation.identity?.externalId,
-          conversation.identity?.externalUserId,
-        ),
-        from: fromAddress,
-        fromName: conversation.customer.displayName ?? "CoolFix Support",
-        to,
-        subject,
-        text,
-        date: new Date().toISOString(),
-      },
+      body: outboundPayload,
     });
 
     return this.parseWebhookResult(response, "email-webhook");
@@ -620,7 +625,13 @@ export class ChannelSenderService {
       headers,
       body: JSON.stringify(options.body),
     });
-    const raw = await response.json().catch(() => ({}));
+    const rawText = await response.text();
+    let raw: unknown = {};
+    try {
+      raw = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      raw = rawText ? { rawBody: rawText } : {};
+    }
     return { response, raw, provider: options.provider };
   }
 
