@@ -90,20 +90,21 @@ export class MessengerCompatController {
 
   private normalizeAttachments(attachments: unknown): InboundAttachment[] {
     if (!Array.isArray(attachments)) return [];
-    return attachments
-      .map((attachment) => {
-        if (!attachment || typeof attachment !== "object") return undefined;
-        const typed = attachment as Record<string, unknown>;
-        const type = typed.type === "image" ? "image" : typed.type === "audio" ? "audio" : typed.type === "video" ? "video" : "file";
-        const url = (typed.payload as Record<string, unknown> | undefined)?.url as string | undefined;
-        if (!url || typeof url !== "string") return undefined;
-        return {
-          type,
-          url,
-          externalMediaId: (typed.payload as Record<string, unknown> | undefined)?.id as string | undefined,
-        };
-      })
-      .filter((value): value is InboundAttachment => Boolean(value));
+    const result: InboundAttachment[] = [];
+    for (const attachment of attachments) {
+      if (!attachment || typeof attachment !== "object") continue;
+      const typed = attachment as Record<string, unknown>;
+      const type = typed.type === "image" ? "image" : typed.type === "audio" ? "audio" : typed.type === "video" ? "video" : "file";
+      const url = (typed.payload as Record<string, unknown> | undefined)?.url;
+      if (!url || typeof url !== "string") continue;
+      const externalMediaId = (typed.payload as Record<string, unknown> | undefined)?.id;
+      result.push({
+        type,
+        url,
+        externalMediaId: typeof externalMediaId === "string" ? externalMediaId : undefined,
+      });
+    }
+    return result;
   }
 
   private parseTimestamp(value?: string | number) {
