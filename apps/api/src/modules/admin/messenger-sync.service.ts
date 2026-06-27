@@ -209,15 +209,24 @@ export class MessengerSyncService {
     const fakeConversationIds = fakeCustomers.flatMap((customer) => customer.conversations.map((conversation) => conversation.id));
     const fakeMessageIds = fakeCustomers.flatMap((customer) => customer.messages.map((message) => message.id));
     const emptyConversations = await this.findEmptyConversations([...touchedConversationIds, ...invalidEmptyConversationIds, ...fakeConversationIds]);
+    const globalEmptyConversations = await this.findGlobalEmptyConversations();
     const conversationIds = [
       ...new Set([
         ...invalidEmptyConversationIds,
         ...fakeConversationIds,
         ...fullyDirtyConversations.map((conversation) => conversation.id),
         ...emptyConversations.map((conversation) => conversation.id),
+        ...globalEmptyConversations.map((conversation) => conversation.id),
       ]),
     ];
-    const customerIds = [...new Set([...touchedCustomerIds, ...fakeCustomers.map((customer) => customer.id), ...emptyConversations.map((conversation) => conversation.customerId)])];
+    const customerIds = [
+      ...new Set([
+        ...touchedCustomerIds,
+        ...fakeCustomers.map((customer) => customer.id),
+        ...emptyConversations.map((conversation) => conversation.customerId),
+        ...globalEmptyConversations.map((conversation) => conversation.customerId),
+      ]),
+    ];
     const emptyCustomers = await this.findEmptyCustomers(customerIds);
 
     const plan = {
@@ -229,6 +238,7 @@ export class MessengerSyncService {
       fullyDirtyConversations: fullyDirtyConversations.length,
       fakeCustomers: fakeCustomers.length,
       emptyConversations: emptyConversations.length,
+      globalEmptyConversations: globalEmptyConversations.length,
       conversationsToDelete: conversationIds.length,
       inactiveAiMaterials: inactiveMaterials.length,
       emptyCustomers: [...new Set([...emptyCustomers.map((customer) => customer.id), ...fakeCustomers.map((customer) => customer.id)])].length,
@@ -314,6 +324,15 @@ export class MessengerSyncService {
     const conversations = await this.prisma.conversation.findMany({
       where: { id: { in: ids } },
       include: { messages: { select: { id: true }, take: 1 } },
+    });
+    return conversations.filter((conversation) => conversation.messages.length === 0);
+  }
+
+  private async findGlobalEmptyConversations() {
+    const conversations = await this.prisma.conversation.findMany({
+      where: { lastMessageAt: null },
+      include: { messages: { select: { id: true }, take: 1 } },
+      take: 500,
     });
     return conversations.filter((conversation) => conversation.messages.length === 0);
   }
