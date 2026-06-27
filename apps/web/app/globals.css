@@ -652,8 +652,52 @@ h2 {
 
 .trainingMaterialTop {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.trainingMaterialTop input,
+.trainingMaterialCard textarea,
+.trainingMetaEdit input,
+.trainingMetaEdit select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.trainingMaterialCard textarea {
+  resize: vertical;
+  min-height: 74px;
+  line-height: 1.4;
+}
+
+.trainingMetaEdit {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.8fr) minmax(120px, 1fr) minmax(140px, 1fr);
+  gap: 8px;
+}
+
+.materialStatus {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.materialStatus.active {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.materialStatus.inactive {
+  background: #f1f5f9;
+  color: #64748b;
 }
 
 .trainingMaterialTop span,
@@ -665,6 +709,36 @@ h2 {
 
 .trainingMaterialCard p {
   line-height: 1.45;
+}
+
+.trainingMaterialActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.trainingMaterialActions button {
+  min-height: 32px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #fff;
+  color: #1d4ed8;
+  padding: 0 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.trainingMaterialActions button.danger {
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.trainingMaterialActions span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .emptyTraining {

@@ -149,6 +149,36 @@ export class AiService {
     return { material, alreadySaved: false };
   }
 
+  async updateTrainingMaterial(id: string, body: any) {
+    const data: Record<string, unknown> = {};
+    if (body.title !== undefined) data.title = String(body.title).trim().slice(0, 120) || "AI training material";
+    if (body.question !== undefined) data.question = String(body.question).trim() || "General customer question";
+    if (body.answer !== undefined) {
+      const answer = String(body.answer).trim();
+      if (!answer) throw new Error("answer is required");
+      data.answer = answer;
+    }
+    if (body.language !== undefined) data.language = String(body.language).trim() || "unknown";
+    if (body.intent !== undefined) data.intent = String(body.intent).trim() || "other";
+    if (body.channel !== undefined) data.channel = body.channel || null;
+    if (body.isActive !== undefined) data.isActive = Boolean(body.isActive);
+    if (body.metadata !== undefined) data.metadata = body.metadata ?? {};
+
+    const material = await this.prisma.aiTrainingMaterial.update({
+      where: { id },
+      data,
+    });
+    return { material };
+  }
+
+  async deleteTrainingMaterial(id: string) {
+    const material = await this.prisma.aiTrainingMaterial.update({
+      where: { id },
+      data: { isActive: false },
+    });
+    return { material, deleted: true };
+  }
+
   async hasSameTrainingAnswer(answer?: string | null) {
     const value = String(answer ?? "").trim();
     if (!value) return false;

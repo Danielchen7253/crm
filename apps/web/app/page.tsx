@@ -167,6 +167,7 @@ export default function Page() {
   const [replySaveStatus, setReplySaveStatus] = useState<Record<string, string>>({});
   const [trainingMaterials, setTrainingMaterials] = useState<AiTrainingMaterial[]>([]);
   const [trainingLoading, setTrainingLoading] = useState(false);
+  const [trainingStatus, setTrainingStatus] = useState<Record<string, string>>({});
   const [attachmentOpen, setAttachmentOpen] = useState(false);
   const [soundSettings, setSoundSettings] = useState<NotificationSoundSettings>({
     enabled: true,
@@ -389,6 +390,52 @@ export default function Page() {
     }
   }
 
+  function setMaterialDraft(id: string, patch: Partial<AiTrainingMaterial>) {
+    setTrainingMaterials((current) => current.map((item) => item.id === id ? { ...item, ...patch } : item));
+  }
+
+  function setMaterialStatus(id: string, value: string) {
+    setTrainingStatus((current) => ({ ...current, [id]: value }));
+  }
+
+  async function updateTrainingMaterial(material: AiTrainingMaterial, patch?: Partial<AiTrainingMaterial>) {
+    const next = { ...material, ...patch };
+    setMaterialStatus(material.id, "正在保存...");
+    try {
+      const response = await fetch(`${API_BASE}/ai/training-materials/${material.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: next.title,
+          question: next.question,
+          answer: next.answer,
+          language: next.language,
+          intent: next.intent,
+          channel: next.channel ?? null,
+          isActive: next.isActive,
+        }),
+      });
+      if (!response.ok) throw new Error(`保存失败 ${response.status}`);
+      const result = (await response.json()) as { material: AiTrainingMaterial };
+      setTrainingMaterials((current) => current.map((item) => item.id === material.id ? result.material : item));
+      setMaterialStatus(material.id, "已保存");
+    } catch (err) {
+      setMaterialStatus(material.id, err instanceof Error ? err.message : "保存失败");
+    }
+  }
+
+  async function deleteTrainingMaterial(material: AiTrainingMaterial) {
+    setMaterialStatus(material.id, "正在删除...");
+    try {
+      const response = await fetch(`${API_BASE}/ai/training-materials/${material.id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(`删除失败 ${response.status}`);
+      setTrainingMaterials((current) => current.map((item) => item.id === material.id ? { ...item, isActive: false } : item));
+      setMaterialStatus(material.id, "已停用，AI不会再使用");
+    } catch (err) {
+      setMaterialStatus(material.id, err instanceof Error ? err.message : "删除失败");
+    }
+  }
+
   function resizeDraftBox() {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -484,14 +531,61 @@ export default function Page() {
                 {trainingMaterials.map((material) => (
                   <article className="trainingMaterialCard" key={material.id}>
                     <div className="trainingMaterialTop">
-                      <strong>{material.title}</strong>
-                      <span>{material.language} · {material.intent}</span>
+                      <input
+                        value={material.title}
+                        onChange={(event) => setMaterialDraft(material.id, { title: event.target.value })}
+                        aria-label="教材标题"
+                      />
+                      <span className={material.isActive ? "materialStatus active" : "materialStatus inactive"}>
+                        {material.isActive ? "启用中" : "已停用"}
+                      </span>
                     </div>
                     <label>客户问题</label>
-                    <p>{material.question}</p>
+                    <textarea
+                      value={material.question}
+                      onChange={(event) => setMaterialDraft(material.id, { question: event.target.value })}
+                      rows={3}
+                    />
                     <label>标准回复</label>
-                    <p>{material.answer}</p>
+                    <textarea
+                      value={material.answer}
+                      onChange={(event) => setMaterialDraft(material.id, { answer: event.target.value })}
+                      rows={4}
+                    />
+                    <div className="trainingMetaEdit">
+                      <input
+                        value={material.language}
+                        onChange={(event) => setMaterialDraft(material.id, { language: event.target.value })}
+                        aria-label="语言"
+                      />
+                      <input
+                        value={material.intent}
+                        onChange={(event) => setMaterialDraft(material.id, { intent: event.target.value })}
+                        aria-label="意图"
+                      />
+                      <select
+                        value={material.channel ?? ""}
+                        onChange={(event) => setMaterialDraft(material.id, { channel: event.target.value || null })}
+                        aria-label="渠道"
+                      >
+                        <option value="">全部渠道</option>
+                        <option value="messenger">Messenger</option>
+                        <option value="whatsapp">WhatsApp</option>
+                        <option value="sms">SMS</option>
+                        <option value="instagram">Instagram</option>
+                        <option value="email">Email</option>
+                        <option value="website_chat">网站聊天</option>
+                      </select>
+                    </div>
                     <small>{material.channel ?? "全部渠道"} · 调用 {material.usageCount} 次</small>
+                    <div className="trainingMaterialActions">
+                      <button onClick={() => void updateTrainingMaterial(material)}>保存修改</button>
+                      <button onClick={() => void updateTrainingMaterial(material, { isActive: !material.isActive })}>
+                        {material.isActive ? "停用" : "重新启用"}
+                      </button>
+                      <button className="danger" onClick={() => void deleteTrainingMaterial(material)}>删除/停用</button>
+                      {trainingStatus[material.id] && <span>{trainingStatus[material.id]}</span>}
+                    </div>
                   </article>
                 ))}
                 {!trainingMaterials.length && !trainingLoading && <div className="emptyTraining">还没有教材。先在聊天框里让 AI 生成答复，再点“保存为AI教材”。</div>}
