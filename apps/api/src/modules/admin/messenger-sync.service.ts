@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { Channel } from "@prisma/client";
+import { Channel, MessageDirection, MessageStatus, MessageType } from "@prisma/client";
 import type { InboundAttachment, NormalizedInboundMessage } from "@coolfix-crm/shared";
 import { IngestService } from "../inbox/ingest.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -17,6 +17,13 @@ type SyncStatus = {
 };
 
 type MetaChannel = Extract<Channel, "messenger" | "instagram" | "whatsapp">;
+type MarketplaceRecord = {
+  role: string;
+  fbid: string;
+  title: string;
+  customerName: string;
+  sentAt: string;
+};
 
 type GraphPage<T> = {
   data?: T[];
@@ -278,6 +285,43 @@ export class MessengerSyncService {
     return { ok: true, ...plan };
   }
 
+  async importMarketplaceRecords(input: Array<Record<string, unknown>>) {
+    const records = input
+      .map((item): MarketplaceRecord | null => {
+        const role = String(item.role ?? "seller");
+        const fbid = String(item.fbid ?? "").trim();
+        const title = String(item.title ?? "Facebook Marketplace inquiry").trim();
+        const customerName = String(item.customerName ?? "").trim().replace(/\s+/g, " ");
+        const sentAt = String(item.sentAt ?? "");
+        if (!fbid || !customerName || Number.isNaN(new Date(sentAt).getTime())) return null;
+        return { role, fbid, title, customerName, sentAt };
+      })
+      .filter((record): record is MarketplaceRecord => Boolean(record));
+
+    let imported = 0;
+    let skipped = input.length - records.length;
+    const customers = new Set<string>();
+    const tagCounts = new Map<string, number>();
+
+    for (const record of records) {
+      const result = await this.importMarketplaceRecord(record);
+      if (result.imported) imported += 1;
+      else skipped += 1;
+      customers.add(result.customerId);
+      for (const tag of result.tags) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
+    }
+
+    return {
+      ok: true,
+      received: input.length,
+      valid: records.length,
+      imported,
+      skipped,
+      customersTouched: customers.size,
+      tagCounts: Object.fromEntries([...tagCounts.entries()].sort((a, b) => b[1] - a[1])),
+    };
+  }
+
   async repairMetaConversations(channels: Channel[] = [Channel.messenger, Channel.instagram, Channel.whatsapp]) {
     const requestChannels = channels.filter((channel): channel is MetaChannel =>
       this.isMetaFamilyChannel(channel),
@@ -316,6 +360,175 @@ export class MessengerSyncService {
       seen.add(key);
     }
     return duplicates;
+  }
+
+  private async importMarketplaceRecord(record: MarketplaceRecord) {
+    const sentAt = new Date(record.sentAt);
+    const externalIdentityId = `marketplace-name:${this.identityKey(record.customerName)}`;
+    const identity = await this.prisma.customerIdentity.findUnique({
+      where: { provider_externalId: { provider: "facebook_marketplace", externalId: externalIdentityId } },
+      include: { customer: true },
+    });
+
+    const customer =
+      identity?.customer ??
+      (await this.prisma.customer.create({
+        data: {
+          displayName: record.customerName,
+          source: Channel.messenger,
+          lastMessageAt: sentAt,
+          lastContactAt: sentAt,
+          metadata: {
+            importedFrom: "facebook_marketplace_export",
+            importedBy: "admin/import-marketplace",
+          },
+        },
+      }));
+
+    if (!identity) {
+      await this.prisma.customerIdentity.create({
+        data: {
+          customerId: customer.id,
+          channel: Channel.messenger,
+          provider: "facebook_marketplace",
+          externalId: externalIdentityId,
+          displayName: record.customerName,
+          lastSeenAt: sentAt,
+          rawProfile: {
+            source: "facebook_marketplace_export",
+            role: record.role,
+          },
+        },
+      });
+    }
+
+    const tagSpecs = this.inferredMarketplaceTagSpecs(record.title);
+    for (const spec of tagSpecs) {
+      const tag = await this.prisma.tag.upsert({
+        where: { name: spec.name },
+        update: { groupName: spec.groupName, color: spec.color, isActive: true },
+        create: { name: spec.name, groupName: spec.groupName, color: spec.color, isActive: true },
+      });
+      await this.prisma.customerTag
+        .upsert({
+          where: { customerId_tagId: { customerId: customer.id, tagId: tag.id } },
+          update: {},
+          create: { customerId: customer.id, tagId: tag.id },
+        })
+        .catch(() => undefined);
+    }
+
+    const externalThreadId = `marketplace:${record.fbid}`;
+    const conversation = await this.prisma.conversation.upsert({
+      where: { channel_externalThreadId: { channel: Channel.messenger, externalThreadId } },
+      update: {
+        customerId: customer.id,
+        lastMessageAt: sentAt,
+        metadata: {
+          source: "facebook_marketplace_export",
+          role: record.role,
+          fbid: record.fbid,
+          listingTitle: record.title,
+        },
+      },
+      create: {
+        customerId: customer.id,
+        channel: Channel.messenger,
+        externalThreadId,
+        status: "new",
+        lastMessageAt: sentAt,
+        metadata: {
+          source: "facebook_marketplace_export",
+          role: record.role,
+          fbid: record.fbid,
+          listingTitle: record.title,
+        },
+      },
+    });
+
+    const fallbackDedupeKey = `facebook-marketplace:${record.role}:${record.fbid}`;
+    const existing = await this.prisma.message.findUnique({ where: { fallbackDedupeKey } });
+    if (existing) {
+      return { imported: false, customerId: customer.id, tags: tagSpecs.map((tag) => tag.name) };
+    }
+
+    const text =
+      record.role === "seller"
+        ? `Facebook Marketplace inquiry about: ${record.title}`
+        : `Facebook Marketplace contact you messaged about: ${record.title}`;
+    await this.prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        customerId: customer.id,
+        channel: Channel.messenger,
+        provider: "facebook-marketplace-export",
+        externalConversationId: externalThreadId,
+        fallbackDedupeKey,
+        senderType: record.role === "seller" ? "customer" : "agent",
+        direction: record.role === "seller" ? MessageDirection.inbound : MessageDirection.outbound,
+        type: MessageType.text,
+        contentType: MessageType.text,
+        status: record.role === "seller" ? MessageStatus.received : MessageStatus.sent,
+        text,
+        textContent: text,
+        rawEvent: {
+          source: "facebook_marketplace_export",
+          role: record.role,
+          fbid: record.fbid,
+          listingTitle: record.title,
+          customerName: record.customerName,
+        },
+        sentAt,
+      },
+    });
+
+    await this.prisma.customer.update({
+      where: { id: customer.id },
+      data: { lastMessageAt: sentAt, lastContactAt: sentAt },
+    });
+    return { imported: true, customerId: customer.id, tags: tagSpecs.map((tag) => tag.name) };
+  }
+
+  private inferredMarketplaceTagSpecs(title: string) {
+    const text = title.toLowerCase();
+    const tags: Array<{ name: string; groupName: string; color: string }> = [
+      { name: "Marketplace Lead", groupName: "Marketing", color: "#2563eb" },
+      { name: "Facebook Lead", groupName: "Marketing", color: "#1877f2" },
+    ];
+
+    if (/\bhvac\b|air\s*condition|a\/c|ac\s/.test(text)) tags.push({ name: "HVAC", groupName: "Industry", color: "#0ea5e9" });
+    if (/refrigeration|cooler|freezer|ice\s*machine/.test(text)) tags.push({ name: "Refrigeration", groupName: "Industry", color: "#06b6d4" });
+    if (/capacitor|cbb65|\buf\b/.test(text)) tags.push({ name: "Capacitor", groupName: "Product Interest", color: "#f59e0b" });
+    if (/contactor/.test(text)) tags.push({ name: "Contactor", groupName: "Product Interest", color: "#f97316" });
+    if (/relay/.test(text)) tags.push({ name: "Potential Relay", groupName: "Product Interest", color: "#eab308" });
+    if (/thermostat/.test(text)) tags.push({ name: "Thermostat", groupName: "Product Interest", color: "#22c55e" });
+    if (/compressor/.test(text)) tags.push({ name: "Compressor", groupName: "Product Interest", color: "#ef4444" });
+    if (/motor/.test(text)) tags.push({ name: "Fan Motor", groupName: "Product Interest", color: "#8b5cf6" });
+    if (/transformer/.test(text)) tags.push({ name: "Transformer", groupName: "Product Interest", color: "#6366f1" });
+    if (/gasket/.test(text)) tags.push({ name: "Door Gasket", groupName: "Product Interest", color: "#14b8a6" });
+    if (/wholesale|bulk|contractor/.test(text)) tags.push({ name: "Wholesale", groupName: "Customer Level", color: "#7c3aed" });
+    if (/houston|pickup/.test(text)) {
+      tags.push({ name: "Houston", groupName: "Region", color: "#16a34a" });
+      tags.push({ name: "Texas", groupName: "Region", color: "#15803d" });
+      tags.push({ name: "USA", groupName: "Region", color: "#64748b" });
+    }
+
+    const seen = new Set<string>();
+    return tags.filter((tag) => {
+      const key = tag.name.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  private identityKey(value: string) {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\u00c0-\uffff]+/gi, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 120);
   }
 
   private async findEmptyConversations(candidateIds: string[]) {

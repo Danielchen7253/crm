@@ -39,4 +39,9 @@ export class MessengerSyncController {
   cleanupDirtyData(@Body() body: { dryRun?: boolean } = {}) {
     return this.messengerSync.cleanupDirtyData(body.dryRun !== false);
   }
+
+  @Post("import-marketplace")
+  importMarketplace(@Body() body: { records?: Array<Record<string, unknown>> } = {}) {
+    return this.messengerSync.importMarketplaceRecords(body.records ?? []);
+  }
 }
