@@ -106,6 +106,7 @@ export class AiService {
 
   async listTrainingMaterials() {
     return this.prisma.aiTrainingMaterial.findMany({
+      where: { isActive: true },
       orderBy: { updatedAt: "desc" },
       take: 200,
     });
@@ -172,9 +173,8 @@ export class AiService {
   }
 
   async deleteTrainingMaterial(id: string) {
-    const material = await this.prisma.aiTrainingMaterial.update({
+    const material = await this.prisma.aiTrainingMaterial.delete({
       where: { id },
-      data: { isActive: false },
     });
     return { material, deleted: true };
   }

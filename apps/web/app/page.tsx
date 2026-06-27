@@ -412,7 +412,6 @@ export default function Page() {
           language: next.language,
           intent: next.intent,
           channel: next.channel ?? null,
-          isActive: next.isActive,
         }),
       });
       if (!response.ok) throw new Error(`保存失败 ${response.status}`);
@@ -429,8 +428,7 @@ export default function Page() {
     try {
       const response = await fetch(`${API_BASE}/ai/training-materials/${material.id}`, { method: "DELETE" });
       if (!response.ok) throw new Error(`删除失败 ${response.status}`);
-      setTrainingMaterials((current) => current.map((item) => item.id === material.id ? { ...item, isActive: false } : item));
-      setMaterialStatus(material.id, "已停用，AI不会再使用");
+      setTrainingMaterials((current) => current.filter((item) => item.id !== material.id));
     } catch (err) {
       setMaterialStatus(material.id, err instanceof Error ? err.message : "删除失败");
     }
@@ -536,9 +534,6 @@ export default function Page() {
                         onChange={(event) => setMaterialDraft(material.id, { title: event.target.value })}
                         aria-label="教材标题"
                       />
-                      <span className={material.isActive ? "materialStatus active" : "materialStatus inactive"}>
-                        {material.isActive ? "启用中" : "已停用"}
-                      </span>
                     </div>
                     <label>客户问题</label>
                     <textarea
@@ -580,10 +575,7 @@ export default function Page() {
                     <small>{material.channel ?? "全部渠道"} · 调用 {material.usageCount} 次</small>
                     <div className="trainingMaterialActions">
                       <button onClick={() => void updateTrainingMaterial(material)}>保存修改</button>
-                      <button onClick={() => void updateTrainingMaterial(material, { isActive: !material.isActive })}>
-                        {material.isActive ? "停用" : "重新启用"}
-                      </button>
-                      <button className="danger" onClick={() => void deleteTrainingMaterial(material)}>删除/停用</button>
+                      <button className="danger" onClick={() => void deleteTrainingMaterial(material)}>删除</button>
                       {trainingStatus[material.id] && <span>{trainingStatus[material.id]}</span>}
                     </div>
                   </article>
