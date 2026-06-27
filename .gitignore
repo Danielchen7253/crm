@@ -12,3 +12,9 @@ uploads
 *.log
 *.tsbuildinfo
 .expo
+.tmp_*
+.temp_*
+tmp_*
+scripts/tmp*
+*.tmp
+*_backup_*

@@ -416,7 +416,7 @@ export default function Page() {
       body: payload,
     }).catch(() => null);
     if (!response?.ok) {
-      setComposerStatus("附件上传失败，请重试");
+      setComposerStatus("附件功能尚未配置文件存储；请先用文字发送，文件存储接入后再启用。");
       return;
     }
     setComposerStatus("附件已上传，可以发送给客户");

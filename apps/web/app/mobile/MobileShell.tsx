@@ -571,6 +571,7 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
   const [profileOpen, setProfileOpen] = useState(false);
   const [typing, setTyping] = useState(false);
   const [offline, setOffline] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState("");
   const [soundSettings, setSoundSettings] = useState<NotificationSoundSettings>({
     enabled: true,
     volume: 0.7,
@@ -843,15 +844,17 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
     if (!file) return;
     const payload = new FormData();
     payload.append("file", file);
+    setUploadStatus("Uploading attachment...");
     const response = await fetch(`${API_BASE}/files/upload`, {
       method: "POST",
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       body: payload,
     }).catch(() => null);
     if (!response?.ok) {
-      setOffline(true);
+      setUploadStatus("Attachments are not enabled yet. Send text first; file storage must be configured before attachments can be sent.");
       return;
     }
+    setUploadStatus("Attachment uploaded.");
     setOffline(false);
   }
 
@@ -923,6 +926,7 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
           <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(event) => void onPickFile(event.target.files?.[0])} />
           <input ref={fileInputRef} type="file" hidden onChange={(event) => void onPickFile(event.target.files?.[0])} />
         </div>
+        {uploadStatus && <div className="mobileComposerNotice">{uploadStatus}</div>}
         <div className="mobileComposer">
           <textarea
             ref={textareaRef}

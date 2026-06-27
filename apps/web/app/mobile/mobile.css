@@ -641,6 +641,18 @@ body {
   color: #1d4ed8;
 }
 
+.mobileComposerNotice {
+  margin: 8px 10px 0;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #9a3412;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 .mobileComposer {
   align-items: flex-end;
   gap: 10px;
