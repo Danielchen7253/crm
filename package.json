@@ -18,7 +18,10 @@
     "prisma:generate": "pnpm --filter @coolfix-crm/database prisma:generate",
     "prisma:migrate": "pnpm --filter @coolfix-crm/database prisma:migrate",
     "seed": "pnpm --filter @coolfix-crm/database seed",
-    "migrate:legacy": "tsx scripts/migrate-legacy.ts"
+    "migrate:legacy": "tsx scripts/migrate-legacy.ts",
+    "check:channels": "node scripts/check-channel-config.mjs",
+    "smoke:channels": "node scripts/smoke-channel-send.mjs https://coolfix-omni-api.onrender.com",
+    "sync:channel-accounts": "node scripts/sync-channel-accounts.mjs"
   },
   "devDependencies": {
     "@types/pg": "^8.20.0",
