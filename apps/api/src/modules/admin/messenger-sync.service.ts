@@ -204,8 +204,15 @@ export class MessengerSyncService {
       select: { id: true },
     });
 
+    const fullyDirtyConversations = await this.findFullyDirtyConversations(touchedConversationIds, messageIds);
     const emptyConversations = await this.findEmptyConversations([...touchedConversationIds, ...invalidEmptyConversationIds]);
-    const conversationIds = [...new Set([...invalidEmptyConversationIds, ...emptyConversations.map((conversation) => conversation.id)])];
+    const conversationIds = [
+      ...new Set([
+        ...invalidEmptyConversationIds,
+        ...fullyDirtyConversations.map((conversation) => conversation.id),
+        ...emptyConversations.map((conversation) => conversation.id),
+      ]),
+    ];
     const customerIds = [...new Set([...touchedCustomerIds, ...emptyConversations.map((conversation) => conversation.customerId)])];
     const emptyCustomers = await this.findEmptyCustomers(customerIds);
 
@@ -215,6 +222,7 @@ export class MessengerSyncService {
       duplicateMessages: duplicateMessages.length,
       messagesToDelete: messageIds.length,
       invalidMetaConversations: invalidEmptyConversationIds.length,
+      fullyDirtyConversations: fullyDirtyConversations.length,
       emptyConversations: emptyConversations.length,
       conversationsToDelete: conversationIds.length,
       inactiveAiMaterials: inactiveMaterials.length,
@@ -300,6 +308,21 @@ export class MessengerSyncService {
       include: { messages: { select: { id: true }, take: 1 } },
     });
     return conversations.filter((conversation) => conversation.messages.length === 0);
+  }
+
+  private async findFullyDirtyConversations(candidateIds: string[], dirtyMessageIds: string[]) {
+    const ids = [...new Set(candidateIds)].filter(Boolean);
+    const dirty = new Set(dirtyMessageIds);
+    if (!ids.length || !dirty.size) return [];
+    const conversations = await this.prisma.conversation.findMany({
+      where: { id: { in: ids } },
+      include: { messages: { select: { id: true } } },
+    });
+    return conversations.filter(
+      (conversation) =>
+        conversation.messages.length > 0 &&
+        conversation.messages.every((message) => dirty.has(message.id)),
+    );
   }
 
   private async findEmptyCustomers(candidateIds: string[]) {
