@@ -120,7 +120,8 @@ export class ChannelSenderService {
 
     const recipientId = this.pickFirstNonEmpty(
       this.messengerRecipientId(conversation),
-      await this.findLatestInboundSenderId(conversation.id, Channel.messenger),
+      await this.findLatestValidInboundSenderId(conversation.id, Channel.messenger),
+      conversation.externalThreadId,
     );
     const normalizedRecipientId = this.normalizeMetaRecipientId(recipientId);
     if (!normalizedRecipientId) return this.failed("meta-messenger", "Missing or invalid Messenger recipient id");
@@ -162,7 +163,8 @@ export class ChannelSenderService {
 
     const recipientId = this.pickFirstNonEmpty(
       this.instagramRecipientId(conversation),
-      await this.findLatestInboundSenderId(conversation.id, Channel.instagram),
+      await this.findLatestValidInboundSenderId(conversation.id, Channel.instagram),
+      conversation.externalThreadId,
     );
     const normalizedRecipientId = this.normalizeMetaRecipientId(recipientId);
     if (!normalizedRecipientId) return this.failed("meta-instagram", "Missing or invalid Instagram recipient id");
@@ -195,6 +197,12 @@ export class ChannelSenderService {
       config?.fromAddress,
     );
     if (!webhookUrl) return this.missing("website-chat", "WEBSITE_CHAT_WEBHOOK_URL");
+    if (this.isSelfCallbackWebhook(webhookUrl, "/api/webhooks/website-chat")) {
+      return this.failed(
+        "website-chat",
+        "WEBSITE_CHAT_WEBHOOK_URL / settings.webhookUrl points to this API (/api/webhooks/website-chat). Set it to an external website chat delivery endpoint.",
+      );
+    }
 
     const to = this.customerContactHint(conversation);
     const sessionId = this.pickFirstNonEmpty(
@@ -295,6 +303,12 @@ export class ChannelSenderService {
       return this.missing(
         "email",
         "EMAIL_WEBHOOK_URL (fallback for SMTP relay) or RESEND_API_KEY + RESEND_FROM (or EMAIL_FROM_ADDRESS)",
+      );
+    }
+    if (this.isSelfCallbackWebhook(webhookUrl, "/api/webhooks/email")) {
+      return this.failed(
+        "email-webhook",
+        "EMAIL_WEBHOOK_URL / settings.webhookUrl points to this API (/api/webhooks/email). Set it to an external email relay or set RESEND_API_KEY + RESEND_FROM.",
       );
     }
 
@@ -683,8 +697,8 @@ export class ChannelSenderService {
     return candidate;
   }
 
-  private async findLatestInboundSenderId(conversationId: string, channel: Channel) {
-    const inbound = await this.prisma.message.findFirst({
+  private async findLatestValidInboundSenderId(conversationId: string, channel: Channel) {
+    const inbound = await this.prisma.message.findMany({
       where: {
         conversationId,
         channel,
@@ -693,9 +707,14 @@ export class ChannelSenderService {
       },
       orderBy: { sentAt: "desc" },
       select: { senderExternalId: true },
+      take: 20,
     });
-    if (!inbound?.senderExternalId) return null;
-    return inbound.senderExternalId;
+
+    for (const message of inbound) {
+      const normalized = this.normalizeMetaRecipientId(message.senderExternalId);
+      if (normalized) return normalized;
+    }
+    return null;
   }
 
   private instagramRecipientId(conversation: ConversationWithCustomer) {
@@ -761,6 +780,50 @@ export class ChannelSenderService {
     if (trimmed.startsWith("+")) return trimmed;
     const digits = trimmed.replace(/\D/g, "");
     return `+${digits}`;
+  }
+
+  private isSelfCallbackWebhook(webhookUrl: string, expectedPath: string) {
+    const target = this.parseWebhookUrl(webhookUrl);
+    const normalizedExpectedPath = this.normalizeCallbackPath(expectedPath);
+    if (!normalizedExpectedPath) return false;
+
+    const normalizedFromWebhook =
+      this.normalizeCallbackPath(webhookUrl) ||
+      (target ? target.pathname.replace(/\/+$/, "").toLowerCase() : undefined);
+    if (normalizedFromWebhook && (normalizedFromWebhook === normalizedExpectedPath || normalizedFromWebhook === `/api${normalizedExpectedPath}`)) {
+      return true;
+    }
+
+    if (!target) return false;
+    const apiUrl = this.parseWebhookUrl(process.env.API_PUBLIC_URL ?? process.env.PUBLIC_APP_URL ?? process.env.WEB_ORIGIN);
+    const normalizedPath = target.pathname.replace(/\/+$/, "").toLowerCase();
+    if (apiUrl) {
+      return target.origin === apiUrl.origin && (normalizedPath === normalizedExpectedPath || normalizedPath === `/api${normalizedExpectedPath}`);
+    }
+
+    return normalizedPath === normalizedExpectedPath || normalizedPath === `/api${normalizedExpectedPath}`;
+  }
+
+  private normalizeCallbackPath(value?: string | null) {
+    if (!value) return undefined;
+    const normalized = value.trim().toLowerCase();
+    if (!normalized.startsWith("/")) {
+      if (!normalized.startsWith("http://") && !normalized.startsWith("https://")) return undefined;
+      return undefined;
+    }
+    if (normalized.startsWith("http://") || normalized.startsWith("https://")) return undefined;
+    return normalized.replace(/\/+$/, "");
+  }
+
+  private parseWebhookUrl(value?: string | null) {
+    if (!value) return null;
+    const normalized = value.trim();
+    if (!normalized) return null;
+    try {
+      return new URL(normalized);
+    } catch {
+      return null;
+    }
   }
 
   private providerForChannel(channel: Channel) {

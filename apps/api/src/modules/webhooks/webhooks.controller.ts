@@ -1,51 +1,79 @@
-import { Body, Controller, Get, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query } from "@nestjs/common";
 import { MessageStatus } from "@prisma/client";
 import type { InboundAttachment, NormalizedInboundMessage } from "@coolfix-crm/shared";
 import { IngestService } from "../inbox/ingest.service";
+import { CallsService } from "../calls/calls.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { RealtimeGateway } from "../realtime/realtime.gateway";
 
 @Controller("webhooks")
 export class WebhooksController {
+  private resolveMetaVerifyToken() {
+    return (
+      process.env.META_VERIFY_TOKEN ||
+      process.env.META_WEBHOOK_VERIFY_TOKEN ||
+      process.env.META_VERIFY ||
+      process.env.WEBHOOK_VERIFY_TOKEN ||
+      process.env.WEB_ORIGIN_VERIFY_TOKEN ||
+      process.env.VERIFY_TOKEN
+    );
+  }
+
   constructor(
     private readonly ingest: IngestService,
+    private readonly calls: CallsService,
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeGateway,
   ) {}
 
   @Get("meta")
+  @HttpCode(HttpStatus.OK)
   verifyMeta(@Query("hub.mode") mode?: string, @Query("hub.verify_token") token?: string, @Query("hub.challenge") challenge?: string) {
-    if (mode === "subscribe" && token === process.env.META_VERIFY_TOKEN) return challenge;
+    if (mode === "subscribe" && token === this.resolveMetaVerifyToken()) return challenge;
     return "invalid";
   }
 
   @Get("messenger")
+  @HttpCode(HttpStatus.OK)
   verifyMessenger(
     @Query("hub.mode") mode?: string,
     @Query("hub.verify_token") token?: string,
     @Query("hub.challenge") challenge?: string,
   ) {
-    if (mode === "subscribe" && token === process.env.META_VERIFY_TOKEN) return challenge;
+    if (mode === "subscribe" && token === this.resolveMetaVerifyToken()) return challenge;
     return "invalid";
   }
 
   @Get("whatsapp")
+  @HttpCode(HttpStatus.OK)
   verifyWhatsApp(
     @Query("hub.mode") mode?: string,
     @Query("hub.verify_token") token?: string,
     @Query("hub.challenge") challenge?: string,
   ) {
-    if (mode === "subscribe" && token === process.env.META_VERIFY_TOKEN) return challenge;
+    if (mode === "subscribe" && token === this.resolveMetaVerifyToken()) return challenge;
     return "invalid";
   }
 
   @Get("instagram")
+  @HttpCode(HttpStatus.OK)
   verifyInstagram(
     @Query("hub.mode") mode?: string,
     @Query("hub.verify_token") token?: string,
     @Query("hub.challenge") challenge?: string,
   ) {
-    if (mode === "subscribe" && token === process.env.META_VERIFY_TOKEN) return challenge;
+    if (mode === "subscribe" && token === this.resolveMetaVerifyToken()) return challenge;
+    return "invalid";
+  }
+
+  @Get()
+  @HttpCode(HttpStatus.OK)
+  verifyWebhookFallback(
+    @Query("hub.mode") mode?: string,
+    @Query("hub.verify_token") token?: string,
+    @Query("hub.challenge") challenge?: string,
+  ) {
+    if (mode === "subscribe" && token === this.resolveMetaVerifyToken()) return challenge;
     return "invalid";
   }
 
@@ -65,7 +93,7 @@ export class WebhooksController {
     const token = process.env.WHATSAPP_ACCESS_TOKEN ?? process.env.META_ACCESS_TOKEN;
     const result: Record<string, unknown> = {
       webhookUrl: "/api/webhooks/whatsapp",
-      verifyTokenConfigured: Boolean(process.env.META_VERIFY_TOKEN),
+      verifyTokenConfigured: Boolean(this.resolveMetaVerifyToken()),
       phoneNumberIdConfigured: Boolean(phoneNumberId),
       accessTokenConfigured: Boolean(token),
       graphOk: false,
@@ -88,34 +116,33 @@ export class WebhooksController {
   }
 
   @Post("website-chat")
+  @HttpCode(HttpStatus.OK)
   ingestWebsiteChat(@Body() body: any) {
+    const payload = this.unwrapWebhookPayload(body);
     return this.ingest.ingestInbound({
       channel: "website_chat",
       provider: "coolfix-widget",
-      externalThreadId: body.sessionId,
-      externalMessageId: body.messageId,
-      senderExternalId: body.visitorId ?? body.sessionId,
-      senderName: body.name,
-      phone: body.phone,
-      email: body.email,
-      text: body.text,
-      timestamp: body.timestamp,
-      attachments: body.attachments,
-      rawPayload: body,
+      externalThreadId: this.firstDefined(payload.sessionId, payload.visitorId, payload.threadId, payload.conversationId),
+      externalMessageId: payload.messageId,
+      senderExternalId: this.firstDefined(payload.visitorId, payload.from, payload.sessionId, payload.conversationId),
+      senderName: payload.name,
+      phone: payload.phone,
+      email: payload.email,
+      text: payload.text,
+      timestamp: payload.timestamp,
+      attachments: payload.attachments,
+      rawPayload: payload,
     });
   }
 
   @Post("website_chat")
+  @HttpCode(HttpStatus.OK)
   ingestWebsiteChatLegacy(@Body() body: any) {
     return this.ingestWebsiteChat(body);
   }
 
-  @Post("website-chat")
-  ingestWebsiteChatLegacyDash(@Body() body: any) {
-    return this.ingestWebsiteChat(body);
-  }
-
   @Post("twilio/sms")
+  @HttpCode(HttpStatus.OK)
   ingestTwilioSms(@Body() body: any) {
     return this.ingest.ingestInbound({
       channel: "sms",
@@ -132,58 +159,8 @@ export class WebhooksController {
     });
   }
 
-  @Post("twilio/incoming")
-  ingestTwilioIncomingLegacy(@Body() body: any) {
-    return this.ingestTwilioSms(body);
-  }
-
-  @Post("twilio/status")
-  async twilioStatus(@Body() body: any) {
-    const providerMessageId =
-      this.firstDefined(body?.MessageSid, body?.SmsSid, body?.messageSid, body?.Sid, body?.MessageStatus?.messageSid) ??
-      undefined;
-    const status = this.mapProviderStatus(this.firstDefined(body?.MessageStatus, body?.messageStatus, body?.status));
-    if (!providerMessageId) return { ok: true, matched: false, providerMessageId: undefined };
-    const message = await this.prisma.message.findFirst({
-      where: { externalMessageId: providerMessageId ?? undefined },
-    });
-
-    if (!message) return { ok: true, matched: false, providerMessageId };
-
-    const statusTimestamp =
-      this.parseTimestamp(this.firstDefined(body?.Timestamp, body?.timestamp, body?.DateUpdated, body?.DateCreated, body?.date_created, body?.date_updated));
-    const providerErrorMessage = body.ErrorMessage ?? body.ErrorText ?? body.error_message;
-    const providerErrorCode = this.firstDefined(
-      body.ErrorCode,
-      body.ErrorCodeSid,
-      body.error_code,
-      body.errorMessage?.code,
-    );
-
-    const updated = await this.prisma.message.update({
-      where: { id: message.id },
-      data: {
-        status,
-        providerErrorCode: providerErrorCode ? String(providerErrorCode) : undefined,
-        providerErrorMessage,
-        failedReason: providerErrorMessage ?? (status === MessageStatus.failed ? String(status) : undefined),
-        deliveredAt: status === MessageStatus.delivered ? statusTimestamp : undefined,
-        readAt: status === MessageStatus.read ? statusTimestamp : undefined,
-        rawEvent: body,
-      },
-      include: { attachments: true, aiReplyLogs: true },
-    });
-
-    this.realtime.emitInboxEvent("message.status", {
-      conversationId: updated.conversationId,
-      customerId: updated.customerId,
-      message: updated,
-    });
-
-    return { ok: true, matched: true, providerMessageId, status };
-  }
-
   @Post("meta")
+  @HttpCode(HttpStatus.OK)
   async ingestMeta(@Body() body: any) {
     const messages = await this.normalizeMetaMessages(body);
     for (const message of messages) {
@@ -193,6 +170,7 @@ export class WebhooksController {
   }
 
   @Post("whatsapp")
+  @HttpCode(HttpStatus.OK)
   async ingestWhatsApp(@Body() body: any) {
     await this.processMetaStatuses(body);
     const messages = (await this.normalizeMetaMessages(body)).filter((message) => message.channel === "whatsapp");
@@ -203,11 +181,13 @@ export class WebhooksController {
   }
 
   @Post("messenger")
+  @HttpCode(HttpStatus.OK)
   async ingestMessenger(@Body() body: any) {
     return this.ingestMeta(body);
   }
 
   @Post("instagram")
+  @HttpCode(HttpStatus.OK)
   async ingestInstagram(@Body() body: any) {
     const messages = (await this.normalizeMetaMessages(body)).filter((message) => message.channel === "instagram");
     for (const message of messages) {
@@ -216,21 +196,42 @@ export class WebhooksController {
     return { ok: true, channel: "instagram", count: messages.length };
   }
 
+  @Post()
+  @HttpCode(HttpStatus.OK)
+  async ingestWebhookFallback(@Body() body: any) {
+    const sourceObject = String(body?.object ?? "").toLowerCase();
+    if (sourceObject === "whatsapp" || sourceObject === "whatsapp_business_account") {
+      return this.ingestWhatsApp(body);
+    }
+    if (sourceObject === "instagram") {
+      return this.ingestInstagram(body);
+    }
+    return this.ingestMeta(body);
+  }
+
   @Post("email")
+  @HttpCode(HttpStatus.OK)
   ingestEmail(@Body() body: any) {
+    const payload = this.unwrapWebhookPayload(body);
     return this.ingest.ingestInbound({
       channel: "email",
-      provider: body.provider ?? "smtp",
-      externalThreadId: body.threadId ?? body.from,
-      externalMessageId: body.messageId,
-      senderExternalId: body.from,
-      senderName: body.fromName,
-      email: body.from,
-      text: body.text,
-      timestamp: body.date,
-      attachments: body.attachments,
-      rawPayload: body,
+      provider: (payload as any).provider ?? "smtp",
+      externalThreadId: this.firstDefined(payload.threadId, payload.from, payload.email, payload.conversationId),
+      externalMessageId: payload.messageId,
+      senderExternalId: this.firstDefined(payload.from, payload.email),
+      senderName: payload.fromName,
+      email: payload.from ?? payload.email,
+      text: payload.text,
+      timestamp: payload.date ?? payload.timestamp,
+      attachments: payload.attachments,
+      rawPayload: payload,
     });
+  }
+
+  private unwrapWebhookPayload<T>(body: any) {
+    if (!body || typeof body !== "object") return {} as T;
+    if (body.body && typeof body.body === "object") return body.body as T;
+    return body as T;
   }
 
   private twilioAttachments(body: any): InboundAttachment[] {
@@ -283,18 +284,30 @@ export class WebhooksController {
       }
 
       for (const change of entry.changes ?? []) {
+        const changeChannel = body.object === "instagram" ? "instagram" : "whatsapp";
+        const changeProvider = body.object === "instagram" ? "instagram" : "meta";
         for (const waMessage of change.value?.messages ?? []) {
-          const contact = this.whatsAppContact(change.value?.contacts, waMessage.from);
+          const senderId =
+            waMessage.from ??
+            waMessage.sender?.id ??
+            waMessage.from_id ??
+            waMessage.senderId ??
+            change.value?.metadata?.wa_id ??
+            waMessage.id ??
+            change.value?.contacts?.[0]?.wa_id;
+          if (!senderId) continue;
+
+          const contact = this.whatsAppContact(change.value?.contacts, senderId);
           normalized.push({
-            channel: "whatsapp",
-            provider: "meta",
+            channel: changeChannel,
+            provider: changeProvider,
             channelAccountExternalId: change.value?.metadata?.phone_number_id,
-            externalThreadId: waMessage.from,
+            externalThreadId: senderId,
             externalMessageId: waMessage.id,
-          senderExternalId: waMessage.from,
-          senderName: contact?.profile?.name,
-          phone: waMessage.from,
-          text: this.whatsAppText(waMessage),
+            senderExternalId: senderId,
+            senderName: contact?.profile?.name,
+            phone: senderId,
+            text: this.whatsAppText(waMessage),
           timestamp: this.parseTimestamp(waMessage.timestamp)?.toISOString(),
           attachments: this.normalizeWhatsAppAttachments(waMessage),
           rawPayload: change,
