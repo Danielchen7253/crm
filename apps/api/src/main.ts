@@ -25,6 +25,12 @@ async function bootstrap() {
     ],
   });
   const server = app.getHttpAdapter().getInstance();
+  server.use("/messenger", (request: any, _response: any, next: () => void) => {
+    const suffix = (request.url ?? "").toString().replace(/^\/messenger/i, "");
+    request.url = `/api/webhooks/messenger${suffix}`;
+    return next();
+  });
+
   const readQueryValue = (query: Record<string, unknown> | undefined, name: string): string | undefined => {
     const direct = query?.[name];
     if (typeof direct === "string") return direct;
