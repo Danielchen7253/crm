@@ -28,19 +28,6 @@ async function bootstrap() {
   });
   const server = app.getHttpAdapter().getInstance();
 
-  const rewriteLegacyMessengerWebhook = (request: any, _response: any, next: () => void, basePath: string) => {
-    const normalizedBase = basePath.toLowerCase();
-    const normalizedUrl = (request.url ?? "").toString().toLowerCase();
-    const hasBase = normalizedUrl.startsWith(normalizedBase);
-    const suffix = hasBase ? (request.url as string).slice(basePath.length) : (request.url ?? "");
-    request.url = hasBase ? `/api/messenger${suffix}` : request.url;
-    return next();
-  };
-
-  server.use("/messenger", (request: any, response: any, next: () => void) => {
-    return rewriteLegacyMessengerWebhook(request, response, next, "/messenger");
-  });
-
   const readQueryValue = (query: Record<string, unknown> | undefined, name: string): string | undefined => {
     const direct = query?.[name];
     if (typeof direct === "string") return direct;
