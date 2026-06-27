@@ -11,8 +11,9 @@ export class ConversationsController {
   ) {}
 
   @Get()
-  list(@Query("channel") channel?: Channel, @Query("q") q?: string) {
-    return this.prisma.conversation.findMany({
+  async list(@Query("channel") channel?: Channel, @Query("q") q?: string, @Query("limit") limit = "1000") {
+    const take = Math.min(Math.max(Number(limit) || 1000, 1), 2000);
+    const conversations = await this.prisma.conversation.findMany({
       where: {
         channel,
         customer: q
@@ -27,12 +28,19 @@ export class ConversationsController {
       },
       include: {
         customer: { include: { tags: { include: { tag: true } }, identities: true } },
+        identity: true,
         messages: { orderBy: { sentAt: "desc" }, take: 1 },
         assignedTo: true,
       },
       orderBy: [{ lastMessageAt: "desc" }, { createdAt: "desc" }],
-      take: 100,
+      take,
     });
+
+    if (channel === Channel.messenger || channel === Channel.instagram) {
+      return conversations.filter(this.isMetaValidConversation);
+    }
+
+    return conversations;
   }
 
   @Get(":id/messages")
@@ -142,5 +150,26 @@ export class ConversationsController {
     });
     this.realtime.emitInboxEvent("conversation.updated", conversation);
     return conversation;
+  }
+
+  private isMetaValidConversation = (conversation: {
+    externalThreadId: string | null;
+    identity?: { externalId?: string | null; externalUserId?: string | null } | null;
+  }) => {
+    return (
+      this.isValidMetaThreadId(conversation.externalThreadId) ||
+      this.isValidMetaThreadId(conversation.identity?.externalId) ||
+      this.isValidMetaThreadId(conversation.identity?.externalUserId)
+    );
+  };
+
+  private isValidMetaThreadId(value: string | null | undefined) {
+    if (!value) return false;
+    const trimmed = value.trim();
+    if (!trimmed) return false;
+    if (trimmed.startsWith("legacy:")) return false;
+    if (trimmed.startsWith("marketplace:")) return true;
+    if (trimmed.startsWith("m_") || trimmed.startsWith("ig_")) return false;
+    return /^\d{5,30}$/.test(trimmed);
   }
 }

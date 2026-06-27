@@ -233,8 +233,9 @@ export default function Page() {
   }, []);
 
   const loadConversations = async (channel = activeChannel) => {
-    const params = channel !== "all" && channel !== "unread" ? `?channel=${channel}` : "";
-    const response = await fetch(`${API_BASE}/conversations${params}`, { cache: "no-store" });
+    const params = new URLSearchParams({ limit: "1000" });
+    if (channel !== "all" && channel !== "unread") params.set("channel", channel);
+    const response = await fetch(`${API_BASE}/conversations?${params.toString()}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`conversations ${response.status}`);
     const data = (await response.json()) as Conversation[];
     const channelFiltered =
