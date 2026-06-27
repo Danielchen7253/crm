@@ -364,6 +364,33 @@ h2 {
   font-size: 12px;
 }
 
+.sentReplyActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.sentReplyActions button {
+  min-height: 28px;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #fff;
+  color: #1d4ed8;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sentReplyActions small {
+  flex-basis: 100%;
+  color: #2563eb;
+  font-size: 12px;
+  text-align: right;
+}
+
 .attachment {
   display: inline-flex;
   margin-top: 8px;
@@ -427,32 +454,6 @@ h2 {
   margin: 0 0 8px;
   color: var(--muted);
   font-size: 13px;
-}
-
-.aiMaterialPrompt {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 36px;
-  margin-bottom: 8px;
-  border: 1px solid #bfdbfe;
-  border-radius: 8px;
-  background: #eff6ff;
-  color: #1d4ed8;
-  padding: 7px 10px;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.aiMaterialPrompt button {
-  min-height: 30px;
-  border: 1px solid #1d4ed8;
-  border-radius: 6px;
-  background: #fff;
-  color: #1d4ed8;
-  cursor: pointer;
-  font-weight: 800;
 }
 
 .desktopComposer {

@@ -65,6 +65,7 @@ type Message = {
   type: string;
   text?: string;
   sentAt: string;
+  status?: string;
   attachments?: Attachment[];
   aiReplyLogs?: { id: string; suggestedReply?: string; confidence?: number; action?: string }[];
 };
@@ -157,7 +158,7 @@ export default function Page() {
   const [activeAiLogId, setActiveAiLogId] = useState<string | null>(null);
   const [aiGeneratedReply, setAiGeneratedReply] = useState<AiGeneratedReply | null>(null);
   const [aiGenerating, setAiGenerating] = useState(false);
-  const [aiSaveStatus, setAiSaveStatus] = useState("");
+  const [replySaveStatus, setReplySaveStatus] = useState<Record<string, string>>({});
   const [trainingMaterials, setTrainingMaterials] = useState<AiTrainingMaterial[]>([]);
   const [trainingLoading, setTrainingLoading] = useState(false);
   const [attachmentOpen, setAttachmentOpen] = useState(false);
@@ -297,9 +298,6 @@ export default function Page() {
       if (result.failedReason) setComposerStatus(result.failedReason);
       await loadDetail(selected.id);
       await loadConversations(activeChannel);
-      if (aiGeneratedReply?.suggestedReply && !aiGeneratedReply.alreadySaved) {
-        setAiSaveStatus("这条回复还没有保存为AI教材");
-      }
     } catch (err) {
       setDraft(text);
       setActiveAiLogId(aiLogId);
@@ -316,7 +314,7 @@ export default function Page() {
   async function generateAiReply() {
     if (!selected || aiGenerating) return;
     setAiGenerating(true);
-    setAiSaveStatus("");
+    setComposerStatus("");
     try {
       const response = await fetch(`${API_BASE}/ai/conversations/${selected.id}/suggest-reply`, {
         method: "POST",
@@ -328,19 +326,25 @@ export default function Page() {
       setAiGeneratedReply(result);
       setDraft(suggestedReply);
       setActiveAiLogId(result.id ?? null);
-      setAiSaveStatus(result.alreadySaved ? "已保存为AI教材" : "可以保存为AI教材");
     } catch (err) {
-      setAiSaveStatus(err instanceof Error ? err.message : "AI生成失败");
+      setComposerStatus(err instanceof Error ? err.message : "AI生成失败");
     } finally {
       setAiGenerating(false);
     }
     requestAnimationFrame(() => textareaRef.current?.focus());
   }
 
-  async function saveCurrentAiMaterial() {
-    if (!selected || !draft.trim()) return;
-    const latestInbound = [...messages].reverse().find((message) => message.direction === "inbound" && message.text);
-    setAiSaveStatus("正在保存AI教材...");
+  function setMessageSaveStatus(messageId: string, value: string) {
+    setReplySaveStatus((current) => ({ ...current, [messageId]: value }));
+  }
+
+  async function saveMessageAsAiMaterial(message: Message) {
+    if (!selected || !message.text?.trim()) return;
+    const messageTime = new Date(message.sentAt).getTime();
+    const latestInbound = [...messages]
+      .reverse()
+      .find((item) => item.direction === "inbound" && item.text && new Date(item.sentAt).getTime() <= messageTime);
+    setMessageSaveStatus(message.id, "正在保存AI教材...");
     try {
       const response = await fetch(`${API_BASE}/ai/training-materials`, {
         method: "POST",
@@ -348,23 +352,44 @@ export default function Page() {
         body: JSON.stringify({
           title: `${channelLabel(selected.channel)} ${selected.customer.displayName ?? selected.customer.primaryPhone ?? "客户"} 教材`,
           question: latestInbound?.text ?? "General customer question",
-          answer: draft.trim(),
+          answer: message.text.trim(),
           language: aiGeneratedReply?.detectedLanguage ?? "unknown",
           intent: aiGeneratedReply?.intent ?? "other",
           channel: selected.channel,
           conversationId: selected.id,
-          messageId: latestInbound?.id,
-          aiReplyLogId: activeAiLogId,
-          metadata: { savedFrom: "desktop_composer" },
+          messageId: message.id,
+          aiReplyLogId: message.aiReplyLogs?.[0]?.id ?? null,
+          metadata: { savedFrom: "desktop_sent_message", customerMessageId: latestInbound?.id },
         }),
       });
       if (!response.ok) throw new Error(`保存失败 ${response.status}`);
-      const result = (await response.json()) as { alreadySaved?: boolean; material?: AiTrainingMaterial };
-      setAiGeneratedReply((current) => current ? { ...current, alreadySaved: true } : current);
-      setAiSaveStatus(result.alreadySaved ? "已保存为AI教材" : "已保存为AI教材");
+      await response.json().catch(() => undefined);
+      setMessageSaveStatus(message.id, "已保存为AI教材");
       await loadTrainingMaterials();
     } catch (err) {
-      setAiSaveStatus(err instanceof Error ? err.message : "保存失败");
+      setMessageSaveStatus(message.id, err instanceof Error ? err.message : "保存失败");
+    }
+  }
+
+  async function saveMessageAsQuickReply(message: Message) {
+    if (!selected || !message.text?.trim()) return;
+    setMessageSaveStatus(message.id, "正在保存快捷回复...");
+    try {
+      const response = await fetch(`${API_BASE}/quick-replies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: message.text.trim().slice(0, 40),
+          channel: selected.channel,
+          language: aiGeneratedReply?.detectedLanguage ?? "en",
+          content: message.text.trim(),
+          isActive: true,
+        }),
+      });
+      if (!response.ok) throw new Error(`保存失败 ${response.status}`);
+      setMessageSaveStatus(message.id, "已保存为快捷回复");
+    } catch (err) {
+      setMessageSaveStatus(message.id, err instanceof Error ? err.message : "保存失败");
     }
   }
 
@@ -606,6 +631,13 @@ export default function Page() {
                     </a>
                   ))}
                   <span>{new Date(message.sentAt).toLocaleString()}</span>
+                  {message.direction === "outbound" && message.text && message.status !== "failed" && (
+                    <div className="sentReplyActions">
+                      <button onClick={() => void saveMessageAsQuickReply(message)}>保存快捷回复</button>
+                      <button onClick={() => void saveMessageAsAiMaterial(message)}>保存AI教材</button>
+                      {replySaveStatus[message.id] && <small>{replySaveStatus[message.id]}</small>}
+                    </div>
+                  )}
                 </article>
               ))}
             </div>
@@ -624,14 +656,6 @@ export default function Page() {
                 <input ref={fileInputRef} type="file" hidden onChange={(event) => void uploadPickedFile(event.target.files?.[0])} />
               </div>
               {composerStatus && <div className="composerStatus">{composerStatus}</div>}
-              {(currentAiReply?.suggestedReply || aiSaveStatus) && (
-                <div className="aiMaterialPrompt">
-                  <span>{aiSaveStatus || (aiGeneratedReply?.alreadySaved ? "已保存为AI教材" : "这条AI答复还没有保存为教材")}</span>
-                  {currentAiReply?.suggestedReply && !aiGeneratedReply?.alreadySaved && (
-                    <button onClick={saveCurrentAiMaterial}>保存为AI教材</button>
-                  )}
-                </div>
-              )}
               <div className="desktopComposer">
                 <textarea
                   ref={textareaRef}

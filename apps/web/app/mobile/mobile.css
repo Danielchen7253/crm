@@ -448,6 +448,34 @@ body {
   color: #64748b;
 }
 
+.mobileSentReplyActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.mobileSentReplyActions button {
+  min-height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mobileSentReplyActions span {
+  flex-basis: 100%;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 12px;
+  text-align: right;
+}
+
 .mobileFailure {
   display: flex;
   align-items: center;

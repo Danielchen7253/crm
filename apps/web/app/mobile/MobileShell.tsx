@@ -572,6 +572,7 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
   const [typing, setTyping] = useState(false);
   const [offline, setOffline] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
+  const [replySaveStatus, setReplySaveStatus] = useState<Record<string, string>>({});
   const [soundSettings, setSoundSettings] = useState<NotificationSoundSettings>({
     enabled: true,
     volume: 0.7,
@@ -732,6 +733,62 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
     mutationFn: (messageId: string) => api(`/messages/${messageId}/retry`, token, { method: "POST" }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["mobile-messages", conversationId] }),
   });
+
+  function setMessageSaveStatus(messageId: string, value: string) {
+    setReplySaveStatus((current) => ({ ...current, [messageId]: value }));
+  }
+
+  async function saveMessageAsQuickReply(message: Message) {
+    const text = messageText(message).trim();
+    if (!text) return;
+    setMessageSaveStatus(message.id, "Saving quick reply...");
+    try {
+      await api("/quick-replies", token, {
+        method: "POST",
+        body: JSON.stringify({
+          name: text.slice(0, 40),
+          channel: conversation?.channel,
+          language: message.aiReplyLogs?.[0]?.detectedLanguage ?? "en",
+          content: text,
+          isActive: true,
+        }),
+      });
+      setMessageSaveStatus(message.id, "Saved as quick reply");
+      void queryClient.invalidateQueries({ queryKey: ["mobile-quick-replies"] });
+    } catch (error) {
+      setMessageSaveStatus(message.id, error instanceof Error ? error.message : "Save failed");
+    }
+  }
+
+  async function saveMessageAsAiMaterial(message: Message) {
+    const text = messageText(message).trim();
+    if (!text) return;
+    const messageTime = new Date(message.sentAt).getTime();
+    const latestInbound = [...messages]
+      .reverse()
+      .find((item) => item.direction === "inbound" && messageText(item).trim() && new Date(item.sentAt).getTime() <= messageTime);
+    setMessageSaveStatus(message.id, "Saving AI material...");
+    try {
+      await api("/ai/training-materials", token, {
+        method: "POST",
+        body: JSON.stringify({
+          title: `${conversation ? channelNames[conversation.channel] : "CRM"} ${conversation?.customer.displayName ?? conversation?.customer.primaryPhone ?? "Customer"} material`,
+          question: latestInbound ? messageText(latestInbound) : "General customer question",
+          answer: text,
+          language: message.aiReplyLogs?.[0]?.detectedLanguage ?? "unknown",
+          intent: "other",
+          channel: conversation?.channel,
+          conversationId,
+          messageId: message.id,
+          aiReplyLogId: message.aiReplyLogs?.[0]?.id ?? null,
+          metadata: { savedFrom: "mobile_sent_message", customerMessageId: latestInbound?.id },
+        }),
+      });
+      setMessageSaveStatus(message.id, "Saved as AI material");
+    } catch (error) {
+      setMessageSaveStatus(message.id, error instanceof Error ? error.message : "Save failed");
+    }
+  }
 
   useEffect(() => {
     if (!conversationId) return;
@@ -901,6 +958,9 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
                 previous={messages[index - 1]}
                 onCopy={() => void navigator.clipboard?.writeText(messageText(message))}
                 onRetry={() => retryMutation.mutate(message.id)}
+                onSaveQuickReply={() => void saveMessageAsQuickReply(message)}
+                onSaveAiMaterial={() => void saveMessageAsAiMaterial(message)}
+                saveStatus={replySaveStatus[message.id]}
               />
             )}
             components={{
@@ -985,7 +1045,23 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
   );
 }
 
-function MessageRow({ message, previous, onCopy, onRetry }: { message: Message; previous?: Message; onCopy: () => void; onRetry: () => void }) {
+function MessageRow({
+  message,
+  previous,
+  onCopy,
+  onRetry,
+  onSaveQuickReply,
+  onSaveAiMaterial,
+  saveStatus,
+}: {
+  message: Message;
+  previous?: Message;
+  onCopy: () => void;
+  onRetry: () => void;
+  onSaveQuickReply: () => void;
+  onSaveAiMaterial: () => void;
+  saveStatus?: string;
+}) {
   const showDate = !previous || new Date(previous.sentAt).toDateString() !== new Date(message.sentAt).toDateString();
   const failed = message.status === "failed" || Boolean(message.failedReason || message.providerErrorMessage);
   const direction = message.direction === "outbound" ? "outbound" : "inbound";
@@ -1006,6 +1082,13 @@ function MessageRow({ message, previous, onCopy, onRetry }: { message: Message; 
             <div className="mobileFailure">
               <span>{failureText(message)}</span>
               <button onClick={onRetry}>Retry</button>
+            </div>
+          )}
+          {direction === "outbound" && messageText(message).trim() && !failed && !message.id.startsWith("temp-") && (
+            <div className="mobileSentReplyActions">
+              <button onClick={onSaveQuickReply}>Save quick reply</button>
+              <button onClick={onSaveAiMaterial}>Save AI material</button>
+              {saveStatus && <span>{saveStatus}</span>}
             </div>
           )}
           <button className="mobileCopyBtn" onClick={onCopy} title="Copy"><Copy size={13} /></button>
