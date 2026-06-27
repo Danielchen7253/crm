@@ -41,6 +41,28 @@ export class SchemaBootstrapService implements OnModuleInit {
       )`,
       `CREATE INDEX IF NOT EXISTS "SyncLog_channel_status_idx" ON "SyncLog"("channel", "status")`,
       `CREATE INDEX IF NOT EXISTS "SyncLog_channelAccountId_startedAt_idx" ON "SyncLog"("channelAccountId", "startedAt")`,
+      `CREATE TABLE IF NOT EXISTS "AiTrainingMaterial" (
+        "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+        "title" TEXT NOT NULL,
+        "question" TEXT NOT NULL,
+        "answer" TEXT NOT NULL,
+        "language" TEXT NOT NULL DEFAULT 'en',
+        "intent" TEXT NOT NULL DEFAULT 'other',
+        "channel" "Channel",
+        "source" TEXT NOT NULL DEFAULT 'agent_saved_reply',
+        "conversationId" UUID,
+        "messageId" UUID,
+        "aiReplyLogId" UUID,
+        "isActive" BOOLEAN NOT NULL DEFAULT true,
+        "usageCount" INTEGER NOT NULL DEFAULT 0,
+        "metadata" JSONB NOT NULL DEFAULT '{}',
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "AiTrainingMaterial_pkey" PRIMARY KEY ("id")
+      )`,
+      `CREATE INDEX IF NOT EXISTS "AiTrainingMaterial_language_intent_isActive_idx" ON "AiTrainingMaterial"("language", "intent", "isActive")`,
+      `CREATE INDEX IF NOT EXISTS "AiTrainingMaterial_conversationId_createdAt_idx" ON "AiTrainingMaterial"("conversationId", "createdAt")`,
+      `CREATE INDEX IF NOT EXISTS "AiTrainingMaterial_aiReplyLogId_idx" ON "AiTrainingMaterial"("aiReplyLogId")`,
     ];
 
     for (const statement of statements) {
