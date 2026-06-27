@@ -18,7 +18,11 @@ async function bootstrap() {
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.setGlobalPrefix("api", {
-    exclude: [{ path: "/", method: RequestMethod.GET }],
+    exclude: [
+      { path: "/", method: RequestMethod.GET },
+      { path: "messenger", method: RequestMethod.ALL },
+      { path: "/messenger", method: RequestMethod.ALL },
+    ],
   });
   const server = app.getHttpAdapter().getInstance();
   const readQueryValue = (query: Record<string, unknown> | undefined, name: string): string | undefined => {
@@ -39,7 +43,6 @@ async function bootstrap() {
 
   const webhookAliases = new Set([
     "/webhooks",
-    "/messenger",
     "/whatsapp",
     "/instagram",
     "/meta",
