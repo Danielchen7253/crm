@@ -20,6 +20,8 @@ async function bootstrap() {
   app.setGlobalPrefix("api", {
     exclude: [
       { path: "/", method: RequestMethod.GET },
+      { path: "messenger", method: RequestMethod.ALL },
+      { path: "/messenger", method: RequestMethod.ALL },
       { path: "api/messenger", method: RequestMethod.ALL },
       { path: "/api/messenger", method: RequestMethod.ALL },
     ],
@@ -31,7 +33,7 @@ async function bootstrap() {
     const normalizedUrl = (request.url ?? "").toString().toLowerCase();
     const hasBase = normalizedUrl.startsWith(normalizedBase);
     const suffix = hasBase ? (request.url as string).slice(basePath.length) : (request.url ?? "");
-    request.url = hasBase ? `/api/webhooks/messenger${suffix}` : request.url;
+    request.url = hasBase ? `/api/messenger${suffix}` : request.url;
     return next();
   };
 
