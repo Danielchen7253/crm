@@ -1,25 +1,33 @@
 "use client";
 
 import {
-  Bot,
   CheckCircle2,
   Clock3,
+  FileText,
   Filter,
+  ImageIcon,
   Inbox,
   Mail,
   MessageCircle,
+  Mic,
+  Paperclip,
   Phone,
   Search,
   Send,
   Settings,
+  Sparkles,
   Tag,
   UserRound,
+  Video,
+  X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ClipboardEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
 const API_BASE = "/api/backend";
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL ?? "https://coolfix-omni-api.onrender.com";
+const SOCKET_URL =
+  process.env.NEXT_PUBLIC_SOCKET_URL ??
+  (process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/?$/, "").replace(/\/+$/, "") || "https://coolfix-omni-api.onrender.com");
 
 const channels = [
   { key: "all", label: "全部", icon: Inbox },
@@ -112,8 +120,15 @@ export default function Page() {
   const [activeConversationId, setActiveConversationId] = useState<string>("");
   const [detail, setDetail] = useState<Conversation | null>(null);
   const [draft, setDraft] = useState("");
+  const [activeAiLogId, setActiveAiLogId] = useState<string | null>(null);
+  const [attachmentOpen, setAttachmentOpen] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [composerStatus, setComposerStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (window.matchMedia("(max-width: 759px)").matches) {
@@ -183,21 +198,112 @@ export default function Page() {
   const selected = detail?.id === activeConversation?.id ? detail : activeConversation;
   const messages = selected?.messages ?? [];
   const aiSuggestion = messages
+    .slice()
+    .reverse()
     .flatMap((message) => message.aiReplyLogs ?? [])
     .find((item) => item.action !== "no_reply" && item.suggestedReply);
+  const aiScore = aiSuggestion?.suggestedReply ? `${Math.round((aiSuggestion.confidence ?? 0) * 100)}%` : "No score";
+
+  useEffect(() => {
+    if (!aiSuggestion?.suggestedReply || !aiSuggestion.id) return;
+    setDraft((current) => {
+      if (current.trim()) return current;
+      setActiveAiLogId(aiSuggestion.id ?? null);
+      return aiSuggestion.suggestedReply ?? "";
+    });
+  }, [aiSuggestion?.id, aiSuggestion?.suggestedReply]);
+
+  useEffect(() => {
+    resizeDraftBox();
+  }, [draft]);
 
   const sendMessage = async () => {
-    if (!selected || !draft.trim()) return;
+    if (!selected || !draft.trim() || sending) return;
     const text = draft.trim();
+    const aiLogId = activeAiLogId;
     setDraft("");
-    await fetch(`${API_BASE}/messages/send`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversationId: selected.id, text }),
-    });
-    await loadDetail(selected.id);
-    await loadConversations(activeChannel);
+    setActiveAiLogId(null);
+    setSending(true);
+    setComposerStatus("");
+    try {
+      const response = await fetch(`${API_BASE}/messages/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversation_id: selected.id,
+          conversationId: selected.id,
+          channel: selected.channel,
+          content_type: "text",
+          text_content: text,
+          attachment_ids: [],
+          text,
+          ai_reply_log_id: aiLogId,
+          learning_sample: true,
+        }),
+      });
+      if (!response.ok) throw new Error(`发送失败 ${response.status}`);
+      const result = (await response.json().catch(() => ({}))) as { failedReason?: string };
+      if (result.failedReason) setComposerStatus(result.failedReason);
+      await loadDetail(selected.id);
+      await loadConversations(activeChannel);
+    } catch (err) {
+      setDraft(text);
+      setActiveAiLogId(aiLogId);
+      setComposerStatus(err instanceof Error ? err.message : "发送失败，请重试");
+    } finally {
+      setSending(false);
+    }
   };
+
+  function useAiSuggestion() {
+    if (!aiSuggestion?.suggestedReply) return;
+    setDraft(aiSuggestion.suggestedReply);
+    setActiveAiLogId(aiSuggestion.id ?? null);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }
+
+  function resizeDraftBox() {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const styles = window.getComputedStyle(textarea);
+    const lineHeight = Number.parseFloat(styles.lineHeight) || 26;
+    const verticalPadding = Number.parseFloat(styles.paddingTop) + Number.parseFloat(styles.paddingBottom);
+    const maxHeight = Math.ceil(lineHeight * 5 + verticalPadding);
+    const minHeight = Math.ceil(lineHeight * 2 + verticalPadding);
+    textarea.style.height = "auto";
+    const nextHeight = Math.min(Math.max(textarea.scrollHeight, minHeight), maxHeight);
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void sendMessage();
+    }
+  }
+
+  function onPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const image = [...event.clipboardData.items].find((item) => item.type.startsWith("image/"));
+    const file = image?.getAsFile();
+    if (file) void uploadPickedFile(file);
+  }
+
+  async function uploadPickedFile(file?: File | null) {
+    if (!file) return;
+    const payload = new FormData();
+    payload.append("file", file);
+    setComposerStatus("正在上传附件...");
+    const response = await fetch(`${API_BASE}/files/upload`, {
+      method: "POST",
+      body: payload,
+    }).catch(() => null);
+    if (!response?.ok) {
+      setComposerStatus("附件上传失败，请重试");
+      return;
+    }
+    setComposerStatus("附件已上传，可以发送给客户");
+  }
 
   return (
     <main className="shell">
@@ -308,21 +414,64 @@ export default function Page() {
               ))}
             </div>
             <footer className="composer">
-              <div className="aiDraft">
-                <Bot size={16} />
-                <span>{aiSuggestion?.suggestedReply ?? "AI 建议会在新消息进入后自动生成，只作为草稿，不自动发送。"}</span>
-                {aiSuggestion?.suggestedReply && <button onClick={() => setDraft(aiSuggestion.suggestedReply ?? "")}>插入</button>}
+              <div className="composerTools">
+                <button className="composerToolBtn" onClick={() => setAttachmentOpen(true)} aria-label="添加附件">
+                  <Paperclip size={18} />
+                  添加附件
+                </button>
+                <button className={aiSuggestion?.suggestedReply ? "composerToolBtn active" : "composerToolBtn"} onClick={useAiSuggestion} aria-label="使用 AI 建议">
+                  <Sparkles size={18} />
+                  AI
+                  <span>{aiScore}</span>
+                </button>
+                <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(event) => void uploadPickedFile(event.target.files?.[0])} />
+                <input ref={fileInputRef} type="file" hidden onChange={(event) => void uploadPickedFile(event.target.files?.[0])} />
               </div>
-              <div className="inputRow">
+              {composerStatus && <div className="composerStatus">{composerStatus}</div>}
+              <div className="desktopComposer">
                 <textarea
+                  ref={textareaRef}
                   placeholder="输入回复，WhatsApp 24 小时窗口外需要模板消息"
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={onKeyDown}
+                  onPaste={onPaste}
+                  rows={1}
                 />
-                <button className="sendButton" title="发送" onClick={sendMessage}>
-                  <Send size={20} />
+                <button className="sendButton" title="发送" onClick={sendMessage} disabled={!draft.trim() || sending}>
+                  <Send size={24} />
                 </button>
               </div>
+              {attachmentOpen && (
+                <div className="desktopAttachmentMenu">
+                  <div className="desktopAttachmentHeader">
+                    <strong>添加附件</strong>
+                    <button className="iconButton" onClick={() => setAttachmentOpen(false)} aria-label="关闭">
+                      <X size={18} />
+                    </button>
+                  </div>
+                  <button onClick={() => { imageInputRef.current?.click(); setAttachmentOpen(false); }}>
+                    <ImageIcon size={18} />
+                    图片
+                    <span>选择产品图、现场图</span>
+                  </button>
+                  <button onClick={() => { fileInputRef.current?.setAttribute("accept", "audio/*"); fileInputRef.current?.click(); setAttachmentOpen(false); }}>
+                    <Mic size={18} />
+                    音频
+                    <span>语音或录音文件</span>
+                  </button>
+                  <button onClick={() => { fileInputRef.current?.setAttribute("accept", "video/*"); fileInputRef.current?.click(); setAttachmentOpen(false); }}>
+                    <Video size={18} />
+                    视频
+                    <span>客户现场视频</span>
+                  </button>
+                  <button onClick={() => { fileInputRef.current?.removeAttribute("accept"); fileInputRef.current?.click(); setAttachmentOpen(false); }}>
+                    <FileText size={18} />
+                    文件
+                    <span>PDF、Word、Excel 等</span>
+                  </button>
+                </div>
+              )}
             </footer>
           </>
         ) : (

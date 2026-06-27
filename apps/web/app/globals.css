@@ -296,33 +296,67 @@ h2 {
 }
 
 .composer {
+  position: relative;
   border-top: 1px solid var(--line);
   padding: 12px;
   background: #fbfcfe;
 }
 
-.aiDraft,
-.inputRow {
+.composerTools,
+.desktopComposer {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.aiDraft {
-  min-height: 34px;
+.composerTools {
+  padding-bottom: 10px;
+}
+
+.composerToolBtn {
+  flex: 1;
+  min-height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.composerToolBtn span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.composerToolBtn.active {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.composerToolBtn.active span {
+  color: #1d4ed8;
+}
+
+.composerStatus {
+  margin: 0 0 8px;
   color: var(--muted);
   font-size: 13px;
 }
 
-.aiDraft button {
-  margin-left: auto;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: #fff;
-  padding: 5px 10px;
+.desktopComposer {
+  align-items: flex-end;
 }
 
-.inputRow textarea,
+.desktopComposer textarea,
 .detailBlock textarea {
   width: 100%;
   resize: none;
@@ -332,16 +366,82 @@ h2 {
   padding: 10px;
 }
 
-.inputRow textarea {
-  height: 74px;
+.desktopComposer textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 72px;
+  max-height: 154px;
+  overflow-y: hidden;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 18px;
+  line-height: 26px;
 }
 
 .sendButton {
-  width: 44px;
-  height: 44px;
-  border-radius: 8px;
-  background: var(--blue);
+  width: 60px;
+  height: 60px;
+  min-width: 60px;
+  border-radius: 30px;
+  background: var(--text);
   color: #fff;
+}
+
+.sendButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.desktopAttachmentMenu {
+  position: absolute;
+  right: 12px;
+  bottom: calc(100% - 2px);
+  z-index: 10;
+  width: min(360px, calc(100% - 24px));
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 38px rgba(23, 32, 51, 0.16);
+}
+
+.desktopAttachmentHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.desktopAttachmentMenu > button {
+  display: grid;
+  grid-template-columns: 22px 72px 1fr;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+  color: var(--text);
+  padding: 10px 12px;
+  text-align: left;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.desktopAttachmentMenu > button:last-child {
+  border-bottom: 0;
+}
+
+.desktopAttachmentMenu > button:hover {
+  background: #f6f8fb;
+}
+
+.desktopAttachmentMenu > button span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
 }
 
 .detailBlock {
