@@ -267,6 +267,7 @@ model Conversation {
   assignedTo        User?               @relation("ConversationAssignee", fields: [assignedToId], references: [id])
   messages          Message[]
   aiReplyLogs       AiReplyLog[]
+  aiTrainingMaterials AiTrainingMaterial[]
   callSessions      CallSession[]
   internalNotes     InternalNote[]
   createdAt         DateTime            @default(now())
@@ -401,6 +402,7 @@ model Message {
   customer           Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
   attachments        MessageAttachment[]
   aiReplyLogs        AiReplyLog[]
+  aiTrainingMaterials AiTrainingMaterial[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 
@@ -495,9 +497,36 @@ model AiReplyLog {
   rawResponse         Json       @default("{}")
   message             Message?   @relation(fields: [messageId], references: [id])
   conversation        Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  trainingMaterials   AiTrainingMaterial[]
   createdAt           DateTime   @default(now())
 
   @@index([conversationId, createdAt])
+}
+
+model AiTrainingMaterial {
+  id             String        @id @default(uuid()) @db.Uuid
+  title          String
+  question       String
+  answer         String
+  language       String        @default("en")
+  intent         String        @default("other")
+  channel        Channel?
+  source         String        @default("agent_saved_reply")
+  conversationId String?       @db.Uuid
+  messageId      String?       @db.Uuid
+  aiReplyLogId   String?       @db.Uuid
+  isActive       Boolean       @default(true)
+  usageCount     Int           @default(0)
+  metadata       Json          @default("{}")
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  message        Message?      @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  aiReplyLog     AiReplyLog?   @relation(fields: [aiReplyLogId], references: [id], onDelete: SetNull)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([language, intent, isActive])
+  @@index([conversationId, createdAt])
+  @@index([aiReplyLogId])
 }
 
 model Campaign {

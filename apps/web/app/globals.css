@@ -64,6 +64,11 @@ textarea {
   font-weight: 700;
 }
 
+.brandButton {
+  border: 0;
+  cursor: pointer;
+}
+
 .railButton,
 .iconButton,
 .sendButton {
@@ -424,6 +429,32 @@ h2 {
   font-size: 13px;
 }
 
+.aiMaterialPrompt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 36px;
+  margin-bottom: 8px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 7px 10px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.aiMaterialPrompt button {
+  min-height: 30px;
+  border: 1px solid #1d4ed8;
+  border-radius: 6px;
+  background: #fff;
+  color: #1d4ed8;
+  cursor: pointer;
+  font-weight: 800;
+}
+
 .desktopComposer {
   align-items: flex-end;
 }
@@ -546,6 +577,107 @@ h2 {
   display: grid;
   place-items: center;
   height: 100%;
+}
+
+.aiTrainingPage {
+  grid-column: 2 / -1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.trainingHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+  padding: 18px 22px;
+}
+
+.trainingHeader h1 {
+  font-size: 22px;
+}
+
+.trainingHeader p,
+.trainingHint {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.trainingHeader button {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 800;
+  padding: 0 14px;
+}
+
+.trainingGrid {
+  display: grid;
+  grid-template-columns: minmax(480px, 1fr) minmax(280px, 360px);
+  gap: 16px;
+  padding: 16px;
+}
+
+.trainingPanel {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px;
+}
+
+.trainingMaterialList {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.trainingMaterialCard {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+  padding: 12px;
+}
+
+.trainingMaterialTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.trainingMaterialTop span,
+.trainingMaterialCard small,
+.trainingMaterialCard label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.trainingMaterialCard p {
+  line-height: 1.45;
+}
+
+.emptyTraining {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  padding: 18px;
+  text-align: center;
+}
+
+@media (max-width: 1100px) {
+  .trainingGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 920px) {

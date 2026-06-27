@@ -69,6 +69,29 @@ type Message = {
   aiReplyLogs?: { id: string; suggestedReply?: string; confidence?: number; action?: string }[];
 };
 
+type AiTrainingMaterial = {
+  id: string;
+  title: string;
+  question: string;
+  answer: string;
+  language: string;
+  intent: string;
+  channel?: string | null;
+  usageCount: number;
+  isActive: boolean;
+  updatedAt: string;
+};
+
+type AiGeneratedReply = {
+  id: string;
+  suggestedReply: string;
+  confidence?: number;
+  detectedLanguage?: string;
+  intent?: string;
+  alreadySaved?: boolean;
+  messageId?: string | null;
+};
+
 type Identity = {
   id: string;
   channel: string;
@@ -125,14 +148,19 @@ function lastMessageText(conversation: Conversation) {
 }
 
 export default function Page() {
+  const [workspace, setWorkspace] = useState<"inbox" | "aiTraining">("inbox");
   const [activeChannel, setActiveChannel] = useState("all");
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string>("");
   const [detail, setDetail] = useState<Conversation | null>(null);
   const [draft, setDraft] = useState("");
   const [activeAiLogId, setActiveAiLogId] = useState<string | null>(null);
+  const [aiGeneratedReply, setAiGeneratedReply] = useState<AiGeneratedReply | null>(null);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiSaveStatus, setAiSaveStatus] = useState("");
+  const [trainingMaterials, setTrainingMaterials] = useState<AiTrainingMaterial[]>([]);
+  const [trainingLoading, setTrainingLoading] = useState(false);
   const [attachmentOpen, setAttachmentOpen] = useState(false);
-  const [soundSettingsOpen, setSoundSettingsOpen] = useState(false);
   const [soundSettings, setSoundSettings] = useState<NotificationSoundSettings>({
     enabled: true,
     volume: 0.7,
@@ -220,16 +248,21 @@ export default function Page() {
     .reverse()
     .flatMap((message) => message.aiReplyLogs ?? [])
     .find((item) => item.action !== "no_reply" && item.suggestedReply);
-  const aiScore = aiSuggestion?.suggestedReply ? `${Math.round((aiSuggestion.confidence ?? 0) * 100)}%` : "No score";
+  const currentAiReply = aiGeneratedReply?.suggestedReply ? aiGeneratedReply : aiSuggestion ? {
+    id: aiSuggestion.id,
+    suggestedReply: aiSuggestion.suggestedReply ?? "",
+    confidence: aiSuggestion.confidence,
+  } : null;
+  const aiScore = currentAiReply?.suggestedReply ? `${Math.round((currentAiReply.confidence ?? 0) * 100)}%` : "No score";
 
   useEffect(() => {
-    if (!aiSuggestion?.suggestedReply || !aiSuggestion.id) return;
+    if (!aiSuggestion?.suggestedReply || !aiSuggestion.id || aiGeneratedReply) return;
     setDraft((current) => {
       if (current.trim()) return current;
       setActiveAiLogId(aiSuggestion.id ?? null);
       return aiSuggestion.suggestedReply ?? "";
     });
-  }, [aiSuggestion?.id, aiSuggestion?.suggestedReply]);
+  }, [aiGeneratedReply, aiSuggestion?.id, aiSuggestion?.suggestedReply]);
 
   useEffect(() => {
     resizeDraftBox();
@@ -264,6 +297,9 @@ export default function Page() {
       if (result.failedReason) setComposerStatus(result.failedReason);
       await loadDetail(selected.id);
       await loadConversations(activeChannel);
+      if (aiGeneratedReply?.suggestedReply && !aiGeneratedReply.alreadySaved) {
+        setAiSaveStatus("这条回复还没有保存为AI教材");
+      }
     } catch (err) {
       setDraft(text);
       setActiveAiLogId(aiLogId);
@@ -274,10 +310,73 @@ export default function Page() {
   };
 
   function useAiSuggestion() {
-    if (!aiSuggestion?.suggestedReply) return;
-    setDraft(aiSuggestion.suggestedReply);
-    setActiveAiLogId(aiSuggestion.id ?? null);
+    void generateAiReply();
+  }
+
+  async function generateAiReply() {
+    if (!selected || aiGenerating) return;
+    setAiGenerating(true);
+    setAiSaveStatus("");
+    try {
+      const response = await fetch(`${API_BASE}/ai/conversations/${selected.id}/suggest-reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!response.ok) throw new Error(`AI生成失败 ${response.status}`);
+      const result = (await response.json()) as AiGeneratedReply;
+      const suggestedReply = result.suggestedReply ?? "";
+      setAiGeneratedReply(result);
+      setDraft(suggestedReply);
+      setActiveAiLogId(result.id ?? null);
+      setAiSaveStatus(result.alreadySaved ? "已保存为AI教材" : "可以保存为AI教材");
+    } catch (err) {
+      setAiSaveStatus(err instanceof Error ? err.message : "AI生成失败");
+    } finally {
+      setAiGenerating(false);
+    }
     requestAnimationFrame(() => textareaRef.current?.focus());
+  }
+
+  async function saveCurrentAiMaterial() {
+    if (!selected || !draft.trim()) return;
+    const latestInbound = [...messages].reverse().find((message) => message.direction === "inbound" && message.text);
+    setAiSaveStatus("正在保存AI教材...");
+    try {
+      const response = await fetch(`${API_BASE}/ai/training-materials`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: `${channelLabel(selected.channel)} ${selected.customer.displayName ?? selected.customer.primaryPhone ?? "客户"} 教材`,
+          question: latestInbound?.text ?? "General customer question",
+          answer: draft.trim(),
+          language: aiGeneratedReply?.detectedLanguage ?? "unknown",
+          intent: aiGeneratedReply?.intent ?? "other",
+          channel: selected.channel,
+          conversationId: selected.id,
+          messageId: latestInbound?.id,
+          aiReplyLogId: activeAiLogId,
+          metadata: { savedFrom: "desktop_composer" },
+        }),
+      });
+      if (!response.ok) throw new Error(`保存失败 ${response.status}`);
+      const result = (await response.json()) as { alreadySaved?: boolean; material?: AiTrainingMaterial };
+      setAiGeneratedReply((current) => current ? { ...current, alreadySaved: true } : current);
+      setAiSaveStatus(result.alreadySaved ? "已保存为AI教材" : "已保存为AI教材");
+      await loadTrainingMaterials();
+    } catch (err) {
+      setAiSaveStatus(err instanceof Error ? err.message : "保存失败");
+    }
+  }
+
+  async function loadTrainingMaterials() {
+    setTrainingLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/ai/training-materials`, { cache: "no-store" });
+      if (!response.ok) throw new Error(`AI教材加载失败 ${response.status}`);
+      setTrainingMaterials((await response.json()) as AiTrainingMaterial[]);
+    } finally {
+      setTrainingLoading(false);
+    }
   }
 
   function resizeDraftBox() {
@@ -331,7 +430,7 @@ export default function Page() {
   return (
     <main className="shell">
       <aside className="rail">
-        <div className="brand">CF</div>
+        <button className="brand brandButton" onClick={() => setWorkspace("inbox")} title="返回客户池">CF</button>
         {channels.map((item) => {
           const Icon = item.icon;
           return (
@@ -340,6 +439,7 @@ export default function Page() {
               key={item.key}
               title={item.label}
               onClick={() => {
+                setWorkspace("inbox");
                 setActiveChannel(item.key);
                 setActiveConversationId("");
                 setDetail(null);
@@ -349,54 +449,83 @@ export default function Page() {
             </button>
           );
         })}
-        <button className="railButton bottom" title="系统设置" onClick={() => setSoundSettingsOpen((open) => !open)}>
+        <button className={workspace === "aiTraining" ? "railButton bottom active" : "railButton bottom"} title="AI训练页面" onClick={() => {
+          setWorkspace("aiTraining");
+          void loadTrainingMaterials();
+        }}>
           <Settings size={20} />
         </button>
-        {soundSettingsOpen && (
-          <section className="soundSettingsPanel">
-            <header>
-              <div>
-                <strong>新消息声音</strong>
-                <p>客户新消息进来时播放</p>
-              </div>
-              <button className="iconButton" onClick={() => setSoundSettingsOpen(false)} aria-label="关闭声音设置">
-                <X size={17} />
-              </button>
-            </header>
-            <label className="soundToggle">
-              <input
-                type="checkbox"
-                checked={soundSettings.enabled}
-                onChange={(event) => updateSoundSettings({ ...soundSettings, enabled: event.target.checked })}
-              />
-              开启声音提醒
-            </label>
-            <label className="soundControl">
-              <span>音量 {Math.round(soundSettings.volume * 100)}%</span>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={Math.round(soundSettings.volume * 100)}
-                onChange={(event) => updateSoundSettings({ ...soundSettings, volume: Number(event.target.value) / 100 })}
-              />
-            </label>
-            <label className="soundControl">
-              <span>提示音</span>
-              <select
-                value={soundSettings.tone}
-                onChange={(event) => updateSoundSettings({ ...soundSettings, tone: event.target.value as NotificationSoundTone })}
-              >
-                {notificationToneOptions.map((tone) => <option key={tone.value} value={tone.value}>{tone.label}</option>)}
-              </select>
-            </label>
-            <button className="soundTestButton" onClick={() => playNewMessageSound({ force: true, settings: soundSettings })}>
-              <Volume2 size={17} />
-              测试声音
-            </button>
-          </section>
-        )}
       </aside>
+
+      {workspace === "aiTraining" ? (
+        <section className="aiTrainingPage">
+          <header className="trainingHeader">
+            <div>
+              <h1>AI训练专用页面</h1>
+              <p>把你认可的回复保存成教材，AI 下次会优先学习并在适合的对话中调用。</p>
+            </div>
+            <button onClick={() => setWorkspace("inbox")}>返回客户池</button>
+          </header>
+          <div className="trainingGrid">
+            <section className="trainingPanel">
+              <h2>已保存AI教材</h2>
+              <p className="trainingHint">{trainingLoading ? "正在加载..." : `${trainingMaterials.length} 条教材`}</p>
+              <div className="trainingMaterialList">
+                {trainingMaterials.map((material) => (
+                  <article className="trainingMaterialCard" key={material.id}>
+                    <div className="trainingMaterialTop">
+                      <strong>{material.title}</strong>
+                      <span>{material.language} · {material.intent}</span>
+                    </div>
+                    <label>客户问题</label>
+                    <p>{material.question}</p>
+                    <label>标准回复</label>
+                    <p>{material.answer}</p>
+                    <small>{material.channel ?? "全部渠道"} · 调用 {material.usageCount} 次</small>
+                  </article>
+                ))}
+                {!trainingMaterials.length && !trainingLoading && <div className="emptyTraining">还没有教材。先在聊天框里让 AI 生成答复，再点“保存为AI教材”。</div>}
+              </div>
+            </section>
+            <section className="trainingPanel">
+              <h2>新消息声音设置</h2>
+              <p className="trainingHint">系统收到客户新消息时播放，可在这里调声音。</p>
+              <label className="soundToggle">
+                <input
+                  type="checkbox"
+                  checked={soundSettings.enabled}
+                  onChange={(event) => updateSoundSettings({ ...soundSettings, enabled: event.target.checked })}
+                />
+                开启声音提醒
+              </label>
+              <label className="soundControl">
+                <span>音量 {Math.round(soundSettings.volume * 100)}%</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={Math.round(soundSettings.volume * 100)}
+                  onChange={(event) => updateSoundSettings({ ...soundSettings, volume: Number(event.target.value) / 100 })}
+                />
+              </label>
+              <label className="soundControl">
+                <span>提示音</span>
+                <select
+                  value={soundSettings.tone}
+                  onChange={(event) => updateSoundSettings({ ...soundSettings, tone: event.target.value as NotificationSoundTone })}
+                >
+                  {notificationToneOptions.map((tone) => <option key={tone.value} value={tone.value}>{tone.label}</option>)}
+                </select>
+              </label>
+              <button className="soundTestButton" onClick={() => playNewMessageSound({ force: true, settings: soundSettings })}>
+                <Volume2 size={17} />
+                测试声音
+              </button>
+            </section>
+          </div>
+        </section>
+      ) : (
+        <>
 
       <section className="listPane">
         <header className="paneHeader">
@@ -486,15 +615,23 @@ export default function Page() {
                   <Paperclip size={18} />
                   添加附件
                 </button>
-                <button className={aiSuggestion?.suggestedReply ? "composerToolBtn active" : "composerToolBtn"} onClick={useAiSuggestion} aria-label="使用 AI 建议">
+                <button className={currentAiReply?.suggestedReply ? "composerToolBtn active" : "composerToolBtn"} onClick={useAiSuggestion} aria-label="使用 AI 生成回复" disabled={aiGenerating}>
                   <Sparkles size={18} />
-                  AI
+                  {aiGenerating ? "AI生成中" : "AI"}
                   <span>{aiScore}</span>
                 </button>
                 <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(event) => void uploadPickedFile(event.target.files?.[0])} />
                 <input ref={fileInputRef} type="file" hidden onChange={(event) => void uploadPickedFile(event.target.files?.[0])} />
               </div>
               {composerStatus && <div className="composerStatus">{composerStatus}</div>}
+              {(currentAiReply?.suggestedReply || aiSaveStatus) && (
+                <div className="aiMaterialPrompt">
+                  <span>{aiSaveStatus || (aiGeneratedReply?.alreadySaved ? "已保存为AI教材" : "这条AI答复还没有保存为教材")}</span>
+                  {currentAiReply?.suggestedReply && !aiGeneratedReply?.alreadySaved && (
+                    <button onClick={saveCurrentAiMaterial}>保存为AI教材</button>
+                  )}
+                </div>
+              )}
               <div className="desktopComposer">
                 <textarea
                   ref={textareaRef}
@@ -576,6 +713,8 @@ export default function Page() {
           <div className="identity"><Mail size={16} />{selected?.customer.primaryEmail || "无邮箱"}</div>
         </section>
       </aside>
+      </>
+      )}
     </main>
   );
 }
