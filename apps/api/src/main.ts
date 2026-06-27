@@ -45,7 +45,6 @@ async function bootstrap() {
   };
 
   const webhookAliases = new Set([
-    "/messenger",
     "/webhooks",
     "/whatsapp",
     "/instagram",
