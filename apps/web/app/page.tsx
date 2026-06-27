@@ -64,6 +64,8 @@ type Message = {
   direction: "inbound" | "outbound";
   type: string;
   text?: string;
+  textContent?: string;
+  text_content?: string;
   sentAt: string;
   status?: string;
   attachments?: Attachment[];
@@ -145,7 +147,11 @@ function channelLabel(channel: string) {
 function lastMessageText(conversation: Conversation) {
   const message = conversation.messages?.[0];
   if (!message) return "暂无消息";
-  return message.text || (message.attachments?.length ? `[${message.attachments[0].type}]` : "新消息");
+  return messageText(message) || (message.attachments?.length ? `[${message.attachments[0].type}]` : "新消息");
+}
+
+function messageText(message: Message) {
+  return message.textContent ?? message.text_content ?? message.text ?? "";
 }
 
 export default function Page() {
@@ -339,11 +345,12 @@ export default function Page() {
   }
 
   async function saveMessageAsAiMaterial(message: Message) {
-    if (!selected || !message.text?.trim()) return;
+    const answer = messageText(message).trim();
+    if (!selected || !answer) return;
     const messageTime = new Date(message.sentAt).getTime();
     const latestInbound = [...messages]
       .reverse()
-      .find((item) => item.direction === "inbound" && item.text && new Date(item.sentAt).getTime() <= messageTime);
+      .find((item) => item.direction === "inbound" && messageText(item) && new Date(item.sentAt).getTime() <= messageTime);
     setMessageSaveStatus(message.id, "正在保存AI教材...");
     try {
       const response = await fetch(`${API_BASE}/ai/training-materials`, {
@@ -351,8 +358,8 @@ export default function Page() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: `${channelLabel(selected.channel)} ${selected.customer.displayName ?? selected.customer.primaryPhone ?? "客户"} 教材`,
-          question: latestInbound?.text ?? "General customer question",
-          answer: message.text.trim(),
+          question: latestInbound ? messageText(latestInbound) : "General customer question",
+          answer,
           language: aiGeneratedReply?.detectedLanguage ?? "unknown",
           intent: aiGeneratedReply?.intent ?? "other",
           channel: selected.channel,
@@ -366,28 +373,6 @@ export default function Page() {
       await response.json().catch(() => undefined);
       setMessageSaveStatus(message.id, "已保存为AI教材");
       await loadTrainingMaterials();
-    } catch (err) {
-      setMessageSaveStatus(message.id, err instanceof Error ? err.message : "保存失败");
-    }
-  }
-
-  async function saveMessageAsQuickReply(message: Message) {
-    if (!selected || !message.text?.trim()) return;
-    setMessageSaveStatus(message.id, "正在保存快捷回复...");
-    try {
-      const response = await fetch(`${API_BASE}/quick-replies`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: message.text.trim().slice(0, 40),
-          channel: selected.channel,
-          language: aiGeneratedReply?.detectedLanguage ?? "en",
-          content: message.text.trim(),
-          isActive: true,
-        }),
-      });
-      if (!response.ok) throw new Error(`保存失败 ${response.status}`);
-      setMessageSaveStatus(message.id, "已保存为快捷回复");
     } catch (err) {
       setMessageSaveStatus(message.id, err instanceof Error ? err.message : "保存失败");
     }
@@ -624,17 +609,16 @@ export default function Page() {
             <div className="messages">
               {messages.map((message) => (
                 <article key={message.id} className={`bubble ${message.direction}`}>
-                  {message.text && <p>{message.text}</p>}
+                  {messageText(message) && <p>{messageText(message)}</p>}
                   {message.attachments?.map((attachment) => (
                     <a key={attachment.id} className="attachment" href={attachment.url} target="_blank" rel="noreferrer">
                       {attachment.type === "image" ? "查看图片" : attachment.type === "audio" ? "播放语音" : attachment.fileName ?? "打开附件"}
                     </a>
                   ))}
                   <span>{new Date(message.sentAt).toLocaleString()}</span>
-                  {message.direction === "outbound" && message.text && message.status !== "failed" && (
+                  {message.direction === "outbound" && messageText(message).trim() && message.status !== "failed" && (
                     <div className="sentReplyActions">
-                      <button onClick={() => void saveMessageAsQuickReply(message)}>保存快捷回复</button>
-                      <button onClick={() => void saveMessageAsAiMaterial(message)}>保存AI教材</button>
+                      <button onClick={() => void saveMessageAsAiMaterial(message)}>保存为AI教材</button>
                       {replySaveStatus[message.id] && <small>{replySaveStatus[message.id]}</small>}
                     </div>
                   )}

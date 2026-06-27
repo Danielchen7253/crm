@@ -738,28 +738,6 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
     setReplySaveStatus((current) => ({ ...current, [messageId]: value }));
   }
 
-  async function saveMessageAsQuickReply(message: Message) {
-    const text = messageText(message).trim();
-    if (!text) return;
-    setMessageSaveStatus(message.id, "Saving quick reply...");
-    try {
-      await api("/quick-replies", token, {
-        method: "POST",
-        body: JSON.stringify({
-          name: text.slice(0, 40),
-          channel: conversation?.channel,
-          language: message.aiReplyLogs?.[0]?.detectedLanguage ?? "en",
-          content: text,
-          isActive: true,
-        }),
-      });
-      setMessageSaveStatus(message.id, "Saved as quick reply");
-      void queryClient.invalidateQueries({ queryKey: ["mobile-quick-replies"] });
-    } catch (error) {
-      setMessageSaveStatus(message.id, error instanceof Error ? error.message : "Save failed");
-    }
-  }
-
   async function saveMessageAsAiMaterial(message: Message) {
     const text = messageText(message).trim();
     if (!text) return;
@@ -767,7 +745,7 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
     const latestInbound = [...messages]
       .reverse()
       .find((item) => item.direction === "inbound" && messageText(item).trim() && new Date(item.sentAt).getTime() <= messageTime);
-    setMessageSaveStatus(message.id, "Saving AI material...");
+    setMessageSaveStatus(message.id, "正在保存AI教材...");
     try {
       await api("/ai/training-materials", token, {
         method: "POST",
@@ -784,7 +762,7 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
           metadata: { savedFrom: "mobile_sent_message", customerMessageId: latestInbound?.id },
         }),
       });
-      setMessageSaveStatus(message.id, "Saved as AI material");
+      setMessageSaveStatus(message.id, "已保存为AI教材");
     } catch (error) {
       setMessageSaveStatus(message.id, error instanceof Error ? error.message : "Save failed");
     }
@@ -958,7 +936,6 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
                 previous={messages[index - 1]}
                 onCopy={() => void navigator.clipboard?.writeText(messageText(message))}
                 onRetry={() => retryMutation.mutate(message.id)}
-                onSaveQuickReply={() => void saveMessageAsQuickReply(message)}
                 onSaveAiMaterial={() => void saveMessageAsAiMaterial(message)}
                 saveStatus={replySaveStatus[message.id]}
               />
@@ -1050,7 +1027,6 @@ function MessageRow({
   previous,
   onCopy,
   onRetry,
-  onSaveQuickReply,
   onSaveAiMaterial,
   saveStatus,
 }: {
@@ -1058,7 +1034,6 @@ function MessageRow({
   previous?: Message;
   onCopy: () => void;
   onRetry: () => void;
-  onSaveQuickReply: () => void;
   onSaveAiMaterial: () => void;
   saveStatus?: string;
 }) {
@@ -1086,8 +1061,7 @@ function MessageRow({
           )}
           {direction === "outbound" && messageText(message).trim() && !failed && !message.id.startsWith("temp-") && (
             <div className="mobileSentReplyActions">
-              <button onClick={onSaveQuickReply}>Save quick reply</button>
-              <button onClick={onSaveAiMaterial}>Save AI material</button>
+              <button onClick={onSaveAiMaterial}>保存为AI教材</button>
               {saveStatus && <span>{saveStatus}</span>}
             </div>
           )}
