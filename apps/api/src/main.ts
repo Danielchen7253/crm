@@ -3,6 +3,7 @@ import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { CallsService } from "./modules/calls/calls.service";
 import { attachTwilioMediaStream } from "./modules/realtime/twilio-media-stream";
+import { MessengerCompatController } from "./modules/webhooks/messenger-compat.controller";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -27,6 +28,30 @@ async function bootstrap() {
     ],
   });
   const server = app.getHttpAdapter().getInstance();
+  const messengerCompatController = app.get(MessengerCompatController);
+
+  const handleDirectMessenger = async (request: any, response: any) => {
+    if (request.method === "GET") {
+      const responseBody = messengerCompatController.verifyMessenger(request.query);
+      return response.send(responseBody);
+    }
+
+    const payload = await messengerCompatController.ingestMessenger(request.body);
+    return response.json(payload);
+  };
+
+  server.get("/messenger", (request: any, response: any, next: () => void) => {
+    handleDirectMessenger(request, response).catch(next);
+  });
+  server.post("/messenger", (request: any, response: any, next: () => void) => {
+    handleDirectMessenger(request, response).catch(next);
+  });
+  server.get("/api/messenger", (request: any, response: any, next: () => void) => {
+    handleDirectMessenger(request, response).catch(next);
+  });
+  server.post("/api/messenger", (request: any, response: any, next: () => void) => {
+    handleDirectMessenger(request, response).catch(next);
+  });
 
   const readQueryValue = (query: Record<string, unknown> | undefined, name: string): string | undefined => {
     const direct = query?.[name];
