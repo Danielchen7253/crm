@@ -34,4 +34,9 @@ export class MessengerSyncController {
   cleanupTestRecord(@Body() body: { psid?: string } = {}) {
     return this.messengerSync.cleanupTestRecord(body.psid);
   }
+
+  @Post("cleanup-dirty-data")
+  cleanupDirtyData(@Body() body: { dryRun?: boolean } = {}) {
+    return this.messengerSync.cleanupDirtyData(body.dryRun !== false);
+  }
 }

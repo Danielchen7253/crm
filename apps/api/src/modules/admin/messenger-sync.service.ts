@@ -153,6 +153,105 @@ export class MessengerSyncService {
     };
   }
 
+  async cleanupDirtyData(dryRun = true) {
+    const testTextPatterns = [
+      "CRM inbound test",
+      "CRM live inbound test",
+      "CRM outbound path test",
+      "CRM WhatsApp inbound test",
+      "CRM WhatsApp inbound connection test",
+      "CoolFix CRM WhatsApp live send path test",
+      "CoolFix CRM SMS live send test",
+      "CRM Twilio test",
+      "CRM signed Twilio webhook test",
+      "[channel-smoke-",
+      "channel-smoke-",
+      "temporary delete verification",
+      "not a real customer",
+    ];
+
+    const testMessages = await this.prisma.message.findMany({
+      where: { OR: testTextPatterns.map((text) => ({ text: { contains: text, mode: "insensitive" as const } })) },
+      select: { id: true, conversationId: true, customerId: true, provider: true, externalMessageId: true },
+    });
+
+    const duplicateMessages = await this.findDuplicateProviderMessages();
+    const messageIds = [...new Set([...testMessages.map((message) => message.id), ...duplicateMessages.map((message) => message.id)])];
+    const touchedConversationIds = [...new Set([...testMessages, ...duplicateMessages].map((message) => message.conversationId))];
+    const touchedCustomerIds = [...new Set([...testMessages, ...duplicateMessages].map((message) => message.customerId))];
+
+    const invalidMetaConversations = await this.prisma.conversation.findMany({
+      where: {
+        channel: { in: [Channel.messenger, Channel.instagram] },
+        OR: [
+          { externalThreadId: { startsWith: "legacy:" } },
+          { externalThreadId: { startsWith: "m_" } },
+          { externalThreadId: { startsWith: "ig_" } },
+          { externalThreadId: { startsWith: "test" } },
+          { externalThreadId: { startsWith: "debug" } },
+          { externalThreadId: { startsWith: "smoke" } },
+          { externalThreadId: { startsWith: "psid-debug" } },
+        ],
+      },
+      include: { messages: { select: { id: true }, take: 1 } },
+    });
+    const invalidEmptyConversationIds = invalidMetaConversations
+      .filter((conversation) => conversation.messages.length === 0 || touchedConversationIds.includes(conversation.id))
+      .map((conversation) => conversation.id);
+
+    const inactiveMaterials = await this.prisma.aiTrainingMaterial.findMany({
+      where: { isActive: false },
+      select: { id: true },
+    });
+
+    const emptyConversations = await this.findEmptyConversations([...touchedConversationIds, ...invalidEmptyConversationIds]);
+    const conversationIds = [...new Set([...invalidEmptyConversationIds, ...emptyConversations.map((conversation) => conversation.id)])];
+    const customerIds = [...new Set([...touchedCustomerIds, ...emptyConversations.map((conversation) => conversation.customerId)])];
+    const emptyCustomers = await this.findEmptyCustomers(customerIds);
+
+    const plan = {
+      dryRun,
+      testMessages: testMessages.length,
+      duplicateMessages: duplicateMessages.length,
+      messagesToDelete: messageIds.length,
+      invalidMetaConversations: invalidEmptyConversationIds.length,
+      emptyConversations: emptyConversations.length,
+      conversationsToDelete: conversationIds.length,
+      inactiveAiMaterials: inactiveMaterials.length,
+      emptyCustomers: emptyCustomers.length,
+    };
+
+    if (dryRun) return { ok: true, ...plan };
+
+    if (messageIds.length) {
+      await this.prisma.messageAttachment.deleteMany({ where: { messageId: { in: messageIds } } });
+      await this.prisma.aiReplyLog.deleteMany({ where: { messageId: { in: messageIds } } });
+      await this.prisma.message.deleteMany({ where: { id: { in: messageIds } } });
+    }
+
+    if (conversationIds.length) {
+      await this.prisma.aiReplyLog.deleteMany({ where: { conversationId: { in: conversationIds } } });
+      await this.prisma.internalNote.deleteMany({ where: { conversationId: { in: conversationIds } } });
+      await this.prisma.callSession.updateMany({ where: { conversationId: { in: conversationIds } }, data: { conversationId: null } });
+      await this.prisma.conversation.deleteMany({ where: { id: { in: conversationIds } } });
+    }
+
+    if (inactiveMaterials.length) {
+      await this.prisma.aiTrainingMaterial.deleteMany({ where: { id: { in: inactiveMaterials.map((item) => item.id) } } });
+    }
+
+    if (emptyCustomers.length) {
+      const ids = emptyCustomers.map((customer) => customer.id);
+      await this.prisma.customerTag.deleteMany({ where: { customerId: { in: ids } } });
+      await this.prisma.internalNote.deleteMany({ where: { customerId: { in: ids } } });
+      await this.prisma.customerPhone.deleteMany({ where: { customerId: { in: ids } } });
+      await this.prisma.customer.deleteMany({ where: { id: { in: ids } } });
+    }
+
+    await this.recomputeLastMessageAt([...customerIds, ...emptyCustomers.map((customer) => customer.id)]);
+    return { ok: true, ...plan };
+  }
+
   async repairMetaConversations(channels: Channel[] = [Channel.messenger, Channel.instagram, Channel.whatsapp]) {
     const requestChannels = channels.filter((channel): channel is MetaChannel =>
       this.isMetaFamilyChannel(channel),
@@ -172,6 +271,78 @@ export class MessengerSyncService {
       { channels: requestChannels, inspected: 0, updated: 0, merged: 0, skipped: 0 },
     );
     return { ...total, details };
+  }
+
+  private async findDuplicateProviderMessages() {
+    const messages = await this.prisma.message.findMany({
+      where: { externalMessageId: { not: null } },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, conversationId: true, customerId: true, provider: true, channel: true, externalMessageId: true },
+    });
+    const seen = new Set<string>();
+    const duplicates: typeof messages = [];
+    for (const message of messages) {
+      const key = `${message.channel}:${message.provider}:${message.externalMessageId}`;
+      if (seen.has(key)) {
+        duplicates.push(message);
+        continue;
+      }
+      seen.add(key);
+    }
+    return duplicates;
+  }
+
+  private async findEmptyConversations(candidateIds: string[]) {
+    const ids = [...new Set(candidateIds)].filter(Boolean);
+    if (!ids.length) return [];
+    const conversations = await this.prisma.conversation.findMany({
+      where: { id: { in: ids } },
+      include: { messages: { select: { id: true }, take: 1 } },
+    });
+    return conversations.filter((conversation) => conversation.messages.length === 0);
+  }
+
+  private async findEmptyCustomers(candidateIds: string[]) {
+    const ids = [...new Set(candidateIds)].filter(Boolean);
+    if (!ids.length) return [];
+    const customers = await this.prisma.customer.findMany({
+      where: { id: { in: ids } },
+      include: {
+        identities: { select: { id: true }, take: 1 },
+        conversations: { select: { id: true }, take: 1 },
+        messages: { select: { id: true }, take: 1 },
+        callSessions: { select: { id: true }, take: 1 },
+        phones: { select: { id: true }, take: 1 },
+      },
+    });
+    return customers.filter(
+      (customer) =>
+        customer.identities.length === 0 &&
+        customer.conversations.length === 0 &&
+        customer.messages.length === 0 &&
+        customer.callSessions.length === 0 &&
+        customer.phones.length === 0,
+    );
+  }
+
+  private async recomputeLastMessageAt(customerIds: string[]) {
+    const ids = [...new Set(customerIds)].filter(Boolean);
+    for (const customerId of ids) {
+      const conversations = await this.prisma.conversation.findMany({
+        where: { customerId },
+        include: { messages: { orderBy: { sentAt: "desc" }, take: 1 } },
+      });
+      let latest: Date | null = null;
+      for (const conversation of conversations) {
+        const conversationLatest = conversation.messages[0]?.sentAt ?? null;
+        await this.prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { lastMessageAt: conversationLatest },
+        });
+        latest = this.maxDate(latest, conversationLatest);
+      }
+      await this.prisma.customer.update({ where: { id: customerId }, data: { lastMessageAt: latest, lastContactAt: latest } }).catch(() => undefined);
+    }
   }
 
   private async repairMetaConversationsByChannel(channel: MetaChannel) {
