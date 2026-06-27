@@ -16,6 +16,8 @@ type SyncStatus = {
   lastError?: string;
 };
 
+type MetaChannel = Extract<Channel, "messenger" | "instagram" | "whatsapp">;
+
 type GraphPage<T> = {
   data?: T[];
   paging?: { next?: string };
@@ -88,8 +90,33 @@ export class MessengerSyncService {
   }
 
   async repairMessengerConversations() {
+    return this.repairMetaConversations([Channel.messenger]);
+  }
+
+  async repairMetaConversations(channels: Channel[] = [Channel.messenger, Channel.instagram, Channel.whatsapp]) {
+    const requestChannels = channels.filter((channel): channel is MetaChannel =>
+      this.isMetaFamilyChannel(channel),
+    );
+    const details = [];
+    for (const channel of requestChannels) {
+      details.push(await this.repairMetaConversationsByChannel(channel));
+    }
+    const total = details.reduce(
+      (acc, item) => {
+        acc.inspected += item.inspected;
+        acc.updated += item.updated;
+        acc.merged += item.merged;
+        acc.skipped += item.skipped;
+        return acc;
+      },
+      { channels: requestChannels, inspected: 0, updated: 0, merged: 0, skipped: 0 },
+    );
+    return { ...total, details };
+  }
+
+  private async repairMetaConversationsByChannel(channel: MetaChannel) {
     const identities = await this.prisma.customerIdentity.findMany({
-      where: { channel: Channel.messenger, provider: "messenger" },
+      where: { channel },
       include: { conversations: true },
     });
 
@@ -100,16 +127,16 @@ export class MessengerSyncService {
 
     for (const identity of identities) {
       inspected += 1;
-      const psid = identity.externalId || identity.externalUserId;
-      if (!psid) {
+      const canonicalThreadId = this.pickMetaThreadId(identity.externalId, identity.externalUserId);
+      if (!canonicalThreadId) {
         skipped += 1;
         continue;
       }
 
+      const staleConversations = identity.conversations.filter((conversation) => conversation.externalThreadId !== canonicalThreadId);
       const target = await this.prisma.conversation.findUnique({
-        where: { channel_externalThreadId: { channel: Channel.messenger, externalThreadId: psid } },
+        where: { channel_externalThreadId: { channel, externalThreadId: canonicalThreadId } },
       });
-      const staleConversations = identity.conversations.filter((conversation) => conversation.externalThreadId !== psid);
 
       if (!target) {
         const first = staleConversations[0];
@@ -119,12 +146,21 @@ export class MessengerSyncService {
         }
         await this.prisma.conversation.update({
           where: { id: first.id },
-          data: { externalThreadId: psid, metadata: { ...(first.metadata as object), repairedFromExternalThreadId: first.externalThreadId } },
+          data: {
+            externalThreadId: canonicalThreadId,
+            metadata: {
+              ...(first.metadata as object),
+              repairedFromExternalThreadId: first.externalThreadId,
+              repairedBy: "repairMetaConversations",
+              repairedAt: new Date().toISOString(),
+            },
+          },
         });
         updated += 1;
         continue;
       }
 
+      let targetLastMessageAt = target.lastMessageAt;
       for (const stale of staleConversations) {
         if (stale.id === target.id) continue;
         await this.prisma.$transaction([
@@ -134,11 +170,42 @@ export class MessengerSyncService {
           this.prisma.callSession.updateMany({ where: { conversationId: stale.id }, data: { conversationId: target.id } }),
           this.prisma.conversation.delete({ where: { id: stale.id } }),
         ]);
+        targetLastMessageAt = this.maxDate(targetLastMessageAt, stale.lastMessageAt);
         merged += 1;
       }
+    await this.prisma.conversation.update({
+      where: { id: target.id },
+      data: {
+        lastMessageAt: targetLastMessageAt ?? null,
+        identityId: target.identityId ?? identity.id,
+        unreadCount: Math.max(target.unreadCount, staleConversations.length),
+      },
+    });
     }
 
-    return { inspected, updated, merged, skipped };
+    return { channel, inspected, updated, merged, skipped };
+  }
+
+  private pickMetaThreadId(first?: string | null, second?: string | null) {
+    return this.normalizeMetaThreadId(first) ?? this.normalizeMetaThreadId(second);
+  }
+
+  private maxDate(left?: Date | null, right?: Date | null): Date | null {
+    if (!left) return right ?? null;
+    if (!right) return left;
+    return left > right ? left : right;
+  }
+
+  private isMetaFamilyChannel(channel: Channel): channel is MetaChannel {
+    return channel === Channel.messenger || channel === Channel.instagram || channel === Channel.whatsapp;
+  }
+
+  private normalizeMetaThreadId(value?: string | null) {
+    if (!value) return undefined;
+    const trimmed = value.trim();
+    if (!trimmed || trimmed.startsWith("legacy:") || trimmed.startsWith("m_") || trimmed.startsWith("ig_")) return undefined;
+    if (!/^\d{5,30}$/.test(trimmed)) return undefined;
+    return trimmed;
   }
 
   private async run(options: { limit?: number; messagesPerConversation?: number }) {
@@ -334,14 +401,14 @@ export class MessengerSyncService {
     message: GraphMessage,
     conversationId: string,
     participant: { id: string; name?: string; email?: string },
-    config: { graphVersion: string; token: string },
+    config: { graphVersion: string; token: string; pageId: string },
   ): NormalizedInboundMessage {
     const attachments = this.normalizeAttachments(message.attachments?.data ?? []);
     const text = message.message ?? (attachments.length ? `[Messenger ${attachments[0].type}]` : "");
     return {
       channel: "messenger",
       provider: "messenger",
-      channelAccountExternalId: config.graphVersion,
+      channelAccountExternalId: config.pageId,
       externalThreadId: participant.id,
       externalMessageId: message.id,
       senderExternalId: participant.id,
@@ -401,9 +468,4 @@ export class MessengerSyncService {
     return current;
   }
 
-  private maxDate(left?: Date | null, right?: Date | null) {
-    if (!left) return right ?? undefined;
-    if (!right) return left;
-    return left > right ? left : right;
-  }
 }

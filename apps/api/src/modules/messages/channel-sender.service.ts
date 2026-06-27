@@ -511,10 +511,12 @@ export class ChannelSenderService {
           ? candidates.find((item) => item.id === conversation.channelAccountId)
           : undefined;
       const directUsable = directMatch ? this.isUsableForConversationChannel(directMatch, conversation.channel) : false;
-      if (directUsable) return this.normalizeChannelAccount(directMatch);
+      if (directMatch && directUsable) return this.normalizeChannelAccount(directMatch);
 
       const sorted = this.rankChannelAccountsForConversation(candidates, conversation.channel);
-      return this.normalizeChannelAccount(sorted[0]);
+      const topMatch = sorted[0];
+      if (!topMatch) return null;
+      return this.normalizeChannelAccount(topMatch);
     } catch (error) {
       console.error("Failed to resolve channel account for outbound send", {
         conversationId: conversation.id,
@@ -533,7 +535,7 @@ export class ChannelSenderService {
     fromAddress?: string | null;
     providerAccountId?: string | null;
     externalPageId?: string | null;
-    settings: unknown;
+    settings?: unknown;
   }): ChannelAccountConfig {
     return {
       token: this.normalizeString(account.encryptedToken),

@@ -1,15 +1,11 @@
 import { RequestMethod, ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
-import { json, urlencoded } from "express";
 import { AppModule } from "./app.module";
 import { CallsService } from "./modules/calls/calls.service";
 import { attachTwilioMediaStream } from "./modules/realtime/twilio-media-stream";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.use(json({ limit: "10mb" }));
-  app.use(urlencoded({ extended: true }));
-
   const baseOrigins = new Set((process.env.WEB_ORIGIN?.split(",") ?? []).map((origin) => origin.trim()).filter(Boolean));
   const websiteChatOrigins = new Set((process.env.WEBSITE_CHAT_ALLOWED_ORIGINS?.split(",") ?? []).map((origin) => origin.trim()).filter(Boolean));
   const mergedOrigins = Array.from(new Set([...Array.from(baseOrigins), ...Array.from(websiteChatOrigins)]));
@@ -25,25 +21,77 @@ async function bootstrap() {
     exclude: [{ path: "/", method: RequestMethod.GET }],
   });
   const server = app.getHttpAdapter().getInstance();
+  const readQueryValue = (query: Record<string, unknown> | undefined, name: string): string | undefined => {
+    const direct = query?.[name];
+    if (typeof direct === "string") return direct;
+    if (!query) return undefined;
+    const parts = name.split(".");
+    let current: unknown = query;
+    for (const part of parts) {
+      if (typeof current !== "object" || current === null) return undefined;
+      const next = (current as Record<string, unknown>)?.[part];
+      if (next === undefined || next === null) return undefined;
+      if (typeof next === "string" || typeof next === "number") return String(next);
+      current = next;
+    }
+    return undefined;
+  };
+
+  const webhookAliases = new Set([
+    "/webhooks",
+    "/messenger",
+    "/whatsapp",
+    "/instagram",
+    "/meta",
+    "/website-chat",
+    "/website_chat",
+    "/twilio",
+    "/twilio/incoming",
+    "/twilio/sms",
+    "/twilio/status",
+    "/twilio/whatsapp",
+  ]);
+  const normalizeWebhookPath = (path: string) => {
+    const normalized = path.toLowerCase().replace(/\/+$/, "").replace(/^$/, "/");
+    if (normalized === "/") return "/";
+    if (normalized === "/webhooks" || normalized.startsWith("/webhooks/")) return normalized;
+    if (normalized === "/twilio" || normalized.startsWith("/twilio/")) return `/api/webhooks${normalized}`;
+    for (const alias of webhookAliases) {
+      if (normalized === alias || normalized.startsWith(`${alias}/`)) {
+        return `/api/webhooks${normalized}`;
+      }
+    }
+    return normalized;
+  };
+
   server.use((request: any, _response: any, next: () => void) => {
-    const path = ((request.path || "").toString().toLowerCase() || "/").replace(/\/+$/, "").replace(/^$/, "/");
-    const isWebhookRoot = path === "/";
-    const isWebhookAlias = path === "/webhooks" || path.startsWith("/webhooks/");
+    const normalizedPath = normalizeWebhookPath(((request.path || "").toString()).toLowerCase());
+    const isWebhookRoot = normalizedPath === "/";
+    const isWebhookAlias = webhookAliases.has(normalizedPath) || normalizedPath === "/webhooks" || normalizedPath.startsWith("/webhooks/");
 
     if (!isWebhookRoot && !isWebhookAlias) return next();
 
+    const mappedPath = (() => {
+      if (isWebhookRoot) return "/api/webhooks";
+      if (normalizedPath.startsWith("/webhooks")) return `/api${normalizedPath.replace(/^\/webhooks/, "/webhooks")}`;
+      return `/api/webhooks${normalizedPath}`;
+    })();
+
     if (request.method === "GET") {
+      const hubMode = readQueryValue(request.query, "hub.mode");
+      const verifyToken = readQueryValue(request.query, "hub.verify_token");
+      const challenge = readQueryValue(request.query, "hub.challenge");
       const hasMetaChallenge =
-        request.query?.["hub.mode"] === "subscribe" &&
-        (request.query?.["hub.verify_token"] || request.query?.["hub.challenge"]);
+        hubMode === "subscribe" &&
+        (verifyToken || challenge);
       if (hasMetaChallenge) {
-        request.url = path === "/" ? "/api/webhooks" : `/api${path.replace(/^\/webhooks/, "/webhooks")}`;
+        request.url = mappedPath;
       }
       return next();
     }
 
     if (request.method === "POST") {
-      request.url = path === "/" ? "/api/webhooks" : `/api${path.replace(/^\/webhooks/, "/webhooks")}`;
+      request.url = mappedPath;
       return next();
     }
 

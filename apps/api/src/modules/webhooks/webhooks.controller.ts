@@ -28,51 +28,40 @@ export class WebhooksController {
 
   @Get("meta")
   @HttpCode(HttpStatus.OK)
-  verifyMeta(@Query("hub.mode") mode?: string, @Query("hub.verify_token") token?: string, @Query("hub.challenge") challenge?: string) {
+  verifyMeta(@Query() query: Record<string, unknown>) {
+    const { mode, token, challenge } = this.resolveMetaChallenge(query);
     if (mode === "subscribe" && token === this.resolveMetaVerifyToken()) return challenge;
     return "invalid";
   }
 
   @Get("messenger")
   @HttpCode(HttpStatus.OK)
-  verifyMessenger(
-    @Query("hub.mode") mode?: string,
-    @Query("hub.verify_token") token?: string,
-    @Query("hub.challenge") challenge?: string,
-  ) {
+  verifyMessenger(@Query() query: Record<string, unknown>) {
+    const { mode, token, challenge } = this.resolveMetaChallenge(query);
     if (mode === "subscribe" && token === this.resolveMetaVerifyToken()) return challenge;
     return "invalid";
   }
 
   @Get("whatsapp")
   @HttpCode(HttpStatus.OK)
-  verifyWhatsApp(
-    @Query("hub.mode") mode?: string,
-    @Query("hub.verify_token") token?: string,
-    @Query("hub.challenge") challenge?: string,
-  ) {
+  verifyWhatsApp(@Query() query: Record<string, unknown>) {
+    const { mode, token, challenge } = this.resolveMetaChallenge(query);
     if (mode === "subscribe" && token === this.resolveMetaVerifyToken()) return challenge;
     return "invalid";
   }
 
   @Get("instagram")
   @HttpCode(HttpStatus.OK)
-  verifyInstagram(
-    @Query("hub.mode") mode?: string,
-    @Query("hub.verify_token") token?: string,
-    @Query("hub.challenge") challenge?: string,
-  ) {
+  verifyInstagram(@Query() query: Record<string, unknown>) {
+    const { mode, token, challenge } = this.resolveMetaChallenge(query);
     if (mode === "subscribe" && token === this.resolveMetaVerifyToken()) return challenge;
     return "invalid";
   }
 
   @Get()
   @HttpCode(HttpStatus.OK)
-  verifyWebhookFallback(
-    @Query("hub.mode") mode?: string,
-    @Query("hub.verify_token") token?: string,
-    @Query("hub.challenge") challenge?: string,
-  ) {
+  verifyWebhookFallback(@Query() query: Record<string, unknown>) {
+    const { mode, token, challenge } = this.resolveMetaChallenge(query);
     if (mode === "subscribe" && token === this.resolveMetaVerifyToken()) return challenge;
     return "invalid";
   }
@@ -215,7 +204,7 @@ export class WebhooksController {
     const payload = this.unwrapWebhookPayload(body);
     return this.ingest.ingestInbound({
       channel: "email",
-      provider: (payload as any).provider ?? "smtp",
+      provider: payload.provider ?? "smtp",
       externalThreadId: this.firstDefined(payload.threadId, payload.from, payload.email, payload.conversationId),
       externalMessageId: payload.messageId,
       senderExternalId: this.firstDefined(payload.from, payload.email),
@@ -228,10 +217,12 @@ export class WebhooksController {
     });
   }
 
-  private unwrapWebhookPayload<T>(body: any) {
-    if (!body || typeof body !== "object") return {} as T;
-    if (body.body && typeof body.body === "object") return body.body as T;
-    return body as T;
+  private unwrapWebhookPayload(body: unknown): Record<string, any> {
+    if (!body || typeof body !== "object") return {};
+    if (body && "body" in body && (body as Record<string, unknown>).body && typeof (body as Record<string, any>).body === "object") {
+      return (body as Record<string, any>).body;
+    }
+    return body as Record<string, any>;
   }
 
   private twilioAttachments(body: any): InboundAttachment[] {
@@ -430,5 +421,26 @@ export class WebhooksController {
     if (!Number.isFinite(numeric)) return undefined;
     const isSeconds = numeric < 1_000_000_000_000;
     return new Date(isSeconds ? numeric * 1000 : numeric);
+  }
+
+  private resolveMetaChallenge(query: Record<string, unknown> | undefined) {
+    const readQueryValue = (name: string): string | undefined => {
+      const direct = query?.[name];
+      if (typeof direct === "string" || typeof direct === "number") return String(direct);
+      const nested = name.split(".").reduce((cursor: unknown, key) => {
+        if (cursor && typeof cursor === "object" && Object.prototype.hasOwnProperty.call(cursor, key)) {
+          return (cursor as Record<string, unknown>)[key];
+        }
+        return undefined;
+      }, query as unknown);
+      if (typeof nested === "string" || typeof nested === "number") return String(nested);
+      return undefined;
+    };
+
+    return {
+      mode: readQueryValue("hub.mode") ?? readQueryValue("mode"),
+      token: readQueryValue("hub.verify_token") ?? readQueryValue("verify_token") ?? readQueryValue("token"),
+      challenge: readQueryValue("hub.challenge") ?? readQueryValue("challenge"),
+    };
   }
 }
