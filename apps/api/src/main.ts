@@ -25,10 +25,21 @@ async function bootstrap() {
     ],
   });
   const server = app.getHttpAdapter().getInstance();
-  server.use("/messenger", (request: any, _response: any, next: () => void) => {
-    const suffix = (request.url ?? "").toString().replace(/^\/messenger/i, "");
-    request.url = `/api/webhooks/messenger${suffix}`;
+
+  const rewriteLegacyMessengerWebhook = (request: any, _response: any, next: () => void, basePath: string) => {
+    const normalizedBase = basePath.toLowerCase();
+    const normalizedUrl = (request.url ?? "").toString().toLowerCase();
+    const hasBase = normalizedUrl.startsWith(normalizedBase);
+    const suffix = hasBase ? (request.url as string).slice(basePath.length) : (request.url ?? "");
+    request.url = hasBase ? `/api/webhooks/messenger${suffix}` : request.url;
     return next();
+  };
+
+  server.use("/messenger", (request: any, response: any, next: () => void) => {
+    return rewriteLegacyMessengerWebhook(request, response, next, "/messenger");
+  });
+  server.use("/api/messenger", (request: any, response: any, next: () => void) => {
+    return rewriteLegacyMessengerWebhook(request, response, next, "/api/messenger");
   });
 
   const readQueryValue = (query: Record<string, unknown> | undefined, name: string): string | undefined => {
