@@ -62,12 +62,18 @@ type Attachment = {
 type Message = {
   id: string;
   direction: "inbound" | "outbound";
+  channel?: string;
   type: string;
   text?: string;
   textContent?: string;
   text_content?: string;
   sentAt: string;
   status?: string;
+  deliveredAt?: string | null;
+  readAt?: string | null;
+  failedReason?: string | null;
+  providerErrorMessage?: string | null;
+  updatedAt?: string;
   attachments?: Attachment[];
   aiReplyLogs?: { id: string; suggestedReply?: string; confidence?: number; action?: string }[];
 };
@@ -154,6 +160,43 @@ function messageText(message: Message) {
   return message.textContent ?? message.text_content ?? message.text ?? "";
 }
 
+function conversationSortTime(conversation: Conversation) {
+  const latestMessageTime = conversation.messages?.[0]?.sentAt;
+  return new Date(conversation.lastMessageAt ?? latestMessageTime ?? 0).getTime();
+}
+
+function sortConversations(items: Conversation[]) {
+  return [...items].sort((a, b) => conversationSortTime(b) - conversationSortTime(a));
+}
+
+function formatExactTime(value?: string | null) {
+  if (!value) return "";
+  return new Date(value).toLocaleString();
+}
+
+function isFailedMessage(message: Message) {
+  return message.status === "failed" || Boolean(message.failedReason || message.providerErrorMessage);
+}
+
+function messageStatusText(message: Message) {
+  const channel = channelLabel(message.channel ?? "");
+  if (message.direction !== "outbound") {
+    return `${channel} 收到时间 ${formatExactTime(message.sentAt)}`;
+  }
+  if (isFailedMessage(message)) {
+    return `发送失败时间 ${formatExactTime(message.updatedAt ?? message.sentAt)}`;
+  }
+  if (message.status === "queued") {
+    return `正在通过 ${channel} 发送`;
+  }
+  const successTime = message.deliveredAt ?? message.sentAt;
+  return `发送成功时间 ${formatExactTime(successTime)}`;
+}
+
+function messageFailureReason(message: Message) {
+  return message.failedReason ?? message.providerErrorMessage ?? "发送失败";
+}
+
 export default function Page() {
   const [workspace, setWorkspace] = useState<"inbox" | "aiTraining">("inbox");
   const [activeChannel, setActiveChannel] = useState("all");
@@ -194,7 +237,9 @@ export default function Page() {
     const response = await fetch(`${API_BASE}/conversations${params}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`conversations ${response.status}`);
     const data = (await response.json()) as Conversation[];
-    const visible = channel === "unread" ? data.filter((item) => item.unreadCount > 0) : data;
+    const channelFiltered =
+      channel !== "all" && channel !== "unread" ? data.filter((item) => item.channel === channel) : data;
+    const visible = sortConversations(channel === "unread" ? channelFiltered.filter((item) => item.unreadCount > 0) : channelFiltered);
     setConversations(visible);
     if (!activeConversationId && visible[0]) setActiveConversationId(visible[0].id);
   };
@@ -376,6 +421,25 @@ export default function Page() {
       await loadTrainingMaterials();
     } catch (err) {
       setMessageSaveStatus(message.id, err instanceof Error ? err.message : "保存失败");
+    }
+  }
+
+  async function retryMessage(message: Message) {
+    if (!selected || !isFailedMessage(message)) return;
+    setComposerStatus("正在重新发送...");
+    try {
+      const response = await fetch(`${API_BASE}/messages/${message.id}/retry`, { method: "POST" });
+      if (!response.ok) throw new Error(`重新发送失败 ${response.status}`);
+      const result = (await response.json().catch(() => ({}))) as { failedReason?: string; message?: Message };
+      if (result.failedReason) {
+        setComposerStatus(result.failedReason);
+      } else {
+        setComposerStatus("已重新发送");
+      }
+      await loadDetail(selected.id);
+      await loadConversations(activeChannel);
+    } catch (err) {
+      setComposerStatus(err instanceof Error ? err.message : "重新发送失败");
     }
   }
 
@@ -694,14 +758,20 @@ export default function Page() {
             </header>
             <div className="messages">
               {messages.map((message) => (
-                <article key={message.id} className={`bubble ${message.direction}`}>
+                <article key={message.id} className={`bubble ${message.direction} ${isFailedMessage(message) ? "failed" : ""}`}>
                   {messageText(message) && <p>{messageText(message)}</p>}
                   {message.attachments?.map((attachment) => (
                     <a key={attachment.id} className="attachment" href={attachment.url} target="_blank" rel="noreferrer">
                       {attachment.type === "image" ? "查看图片" : attachment.type === "audio" ? "播放语音" : attachment.fileName ?? "打开附件"}
                     </a>
                   ))}
-                  <span>{new Date(message.sentAt).toLocaleString()}</span>
+                  <div className="messageStatusLine">
+                    <span>{messageStatusText(message)}</span>
+                    {isFailedMessage(message) && (
+                      <button onClick={() => void retryMessage(message)}>点击再次发送</button>
+                    )}
+                  </div>
+                  {isFailedMessage(message) && <small className="messageFailureReason">{messageFailureReason(message)}</small>}
                   {message.direction === "outbound" && messageText(message).trim() && (
                     <div className="sentReplyActions">
                       <button onClick={() => void saveMessageAsAiMaterial(message)}>保存为AI教材</button>

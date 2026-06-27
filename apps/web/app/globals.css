@@ -351,6 +351,11 @@ h2 {
   background: #dfeeff;
 }
 
+.bubble.failed {
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+}
+
 .bubble.system {
   align-self: center;
   border: 1px solid #cfe1cd;
@@ -362,6 +367,44 @@ h2 {
   margin-top: 4px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.messageStatusLine {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.messageStatusLine span {
+  display: inline;
+  margin: 0;
+}
+
+.bubble.inbound .messageStatusLine {
+  justify-content: flex-start;
+}
+
+.messageStatusLine button {
+  min-height: 28px;
+  border: 1px solid #fecaca;
+  border-radius: 999px;
+  background: #fff;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.messageFailureReason {
+  display: block;
+  margin-top: 5px;
+  color: #b91c1c;
+  font-size: 12px;
+  text-align: right;
 }
 
 .sentReplyActions {
