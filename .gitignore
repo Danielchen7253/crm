@@ -15,6 +15,7 @@ uploads
 .tmp_*
 .temp_*
 tmp_*
+tmp-facebook-marketplace/
 scripts/tmp*
 *.tmp
 *_backup_*
