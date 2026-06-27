@@ -93,6 +93,66 @@ export class MessengerSyncService {
     return this.repairMetaConversations([Channel.messenger]);
   }
 
+  async cleanupTestRecord(psid?: string) {
+    const normalizedPsid = this.normalizeTestPsid(psid);
+    if (!normalizedPsid) {
+      return { ok: false, reason: "Only explicit Messenger test PSIDs can be cleaned up" };
+    }
+
+    const conversations = await this.prisma.conversation.findMany({
+      where: { channel: Channel.messenger, externalThreadId: normalizedPsid },
+    });
+    const identities = await this.prisma.customerIdentity.findMany({
+      where: { channel: Channel.messenger, externalId: normalizedPsid },
+    });
+    const customerIds = new Set<string>([
+      ...conversations.map((conversation) => conversation.customerId),
+      ...identities.map((identity) => identity.customerId),
+    ]);
+
+    let messagesDeleted = 0;
+    for (const conversation of conversations) {
+      const messages = await this.prisma.message.findMany({
+        where: { conversationId: conversation.id },
+        select: { id: true },
+      });
+      const messageIds = messages.map((message) => message.id);
+      if (messageIds.length) {
+        await this.prisma.messageAttachment.deleteMany({ where: { messageId: { in: messageIds } } });
+      }
+      await this.prisma.aiReplyLog.deleteMany({ where: { conversationId: conversation.id } });
+      const deletedMessages = await this.prisma.message.deleteMany({ where: { conversationId: conversation.id } });
+      messagesDeleted += deletedMessages.count;
+      await this.prisma.conversation.delete({ where: { id: conversation.id } });
+    }
+
+    for (const identity of identities) {
+      await this.prisma.customerIdentity.delete({ where: { id: identity.id } });
+    }
+
+    let customersDeleted = 0;
+    for (const customerId of customerIds) {
+      const [remainingIdentities, remainingConversations] = await Promise.all([
+        this.prisma.customerIdentity.count({ where: { customerId } }),
+        this.prisma.conversation.count({ where: { customerId } }),
+      ]);
+      if (remainingIdentities || remainingConversations) continue;
+      await this.prisma.customerTag.deleteMany({ where: { customerId } });
+      await this.prisma.internalNote.deleteMany({ where: { customerId } });
+      await this.prisma.customer.delete({ where: { id: customerId } });
+      customersDeleted += 1;
+    }
+
+    return {
+      ok: true,
+      psid: normalizedPsid,
+      conversationsDeleted: conversations.length,
+      identitiesDeleted: identities.length,
+      messagesDeleted,
+      customersDeleted,
+    };
+  }
+
   async repairMetaConversations(channels: Channel[] = [Channel.messenger, Channel.instagram, Channel.whatsapp]) {
     const requestChannels = channels.filter((channel): channel is MetaChannel =>
       this.isMetaFamilyChannel(channel),
@@ -206,6 +266,14 @@ export class MessengerSyncService {
     if (!trimmed || trimmed.startsWith("legacy:") || trimmed.startsWith("m_") || trimmed.startsWith("ig_")) return undefined;
     if (!/^\d{5,30}$/.test(trimmed)) return undefined;
     return trimmed;
+  }
+
+  private normalizeTestPsid(value?: string | null) {
+    if (!value) return undefined;
+    const trimmed = value.trim();
+    if (/^9{8,30}$/.test(trimmed)) return trimmed;
+    if (/^(test|psid-debug|debug|smoke)[\w:-]{0,80}$/i.test(trimmed)) return trimmed;
+    return undefined;
   }
 
   private async run(options: { limit?: number; messagesPerConversation?: number }) {
