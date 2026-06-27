@@ -59,7 +59,6 @@ async function bootstrap() {
     const normalized = path.toLowerCase().replace(/\/+$/, "").replace(/^$/, "/");
     if (normalized === "/") return "/";
     if (normalized === "/webhooks" || normalized.startsWith("/webhooks/")) return normalized;
-    if (normalized === "/messenger") return "/messenger";
     if (normalized === "/twilio" || normalized.startsWith("/twilio/")) return `/api/webhooks${normalized}`;
     for (const alias of webhookAliases) {
       if (normalized === alias || normalized.startsWith(`${alias}/`)) {
@@ -79,7 +78,6 @@ async function bootstrap() {
     const mappedPath = (() => {
       if (isWebhookRoot) return "/api/webhooks";
       if (normalizedPath.startsWith("/webhooks")) return `/api${normalizedPath.replace(/^\/webhooks/, "/webhooks")}`;
-      if (normalizedPath === "/messenger") return "/messenger";
       return `/api/webhooks${normalizedPath}`;
     })();
 
