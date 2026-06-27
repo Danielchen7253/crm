@@ -32,9 +32,20 @@ import { type ClipboardEvent, type KeyboardEvent, useCallback, useEffect, useMem
 import { io } from "socket.io-client";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import "./mobile.css";
+import {
+  getNotificationSoundSettings,
+  notificationToneOptions,
+  playNewMessageSound,
+  saveNotificationSoundSettings,
+  shouldPlayNotificationSound,
+  type NotificationSoundSettings,
+  type NotificationSoundTone,
+} from "../notificationSound";
 
 const API_BASE = "/api/backend";
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL ?? "https://coolfix-omni-api.onrender.com";
+const SOCKET_URL =
+  process.env.NEXT_PUBLIC_SOCKET_URL ??
+  (process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/?$/, "").replace(/\/+$/, "") || "https://coolfix-omni-api.onrender.com");
 const DEFAULT_TOKEN = "development-token";
 const TOKEN_KEY = "coolfix.crm.mobile.web.token";
 const DRAFT_PREFIX = "coolfix.crm.mobile.draft.";
@@ -180,6 +191,11 @@ export default function MobileShell({ mode }: { mode: Mode }) {
   const [taskDueAt, setTaskDueAt] = useState("");
   const [loading, setLoading] = useState(false);
   const [offline, setOffline] = useState(false);
+  const [soundSettings, setSoundSettings] = useState<NotificationSoundSettings>({
+    enabled: true,
+    volume: 0.7,
+    tone: "chime",
+  });
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const conversationId = mode === "conversation" ? params.id : undefined;
@@ -262,6 +278,7 @@ export default function MobileShell({ mode }: { mode: Mode }) {
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(() => undefined);
     }
+    setSoundSettings(getNotificationSoundSettings());
   }, []);
 
   useEffect(() => {
@@ -274,11 +291,11 @@ export default function MobileShell({ mode }: { mode: Mode }) {
     const socket = io(SOCKET_URL, { transports: ["websocket", "polling"] });
     socket.on("connect", () => setOffline(false));
     socket.on("disconnect", () => setOffline(true));
-    socket.on("message.created", (event: { conversationId?: string }) => {
+    socket.on("message.created", (event: { conversationId?: string; message?: { direction?: string | null } }) => {
       void loadConversations();
       if (event.conversationId && event.conversationId === conversationId) void loadConversation(event.conversationId);
       void notify("New customer message", "Open CRM Mobile Web to reply.");
-      playBeep();
+      if (shouldPlayNotificationSound(event)) playNewMessageSound({ settings: soundSettings });
     });
     socket.on("message.status", (event: { conversationId?: string }) => {
       void loadConversations();
@@ -291,7 +308,7 @@ export default function MobileShell({ mode }: { mode: Mode }) {
     return () => {
       socket.disconnect();
     };
-  }, [conversationId, loadConversation, loadConversations, mode, token]);
+  }, [conversationId, loadConversation, loadConversations, mode, token, soundSettings]);
 
   useEffect(() => {
     if (conversationId) localStorage.setItem(`${DRAFT_PREFIX}${conversationId}`, draft);
@@ -361,6 +378,11 @@ export default function MobileShell({ mode }: { mode: Mode }) {
     const next = tasks.map((item) => item.id === id ? { ...item, done: !item.done } : item);
     setTasks(next);
     localStorage.setItem(TASK_KEY, JSON.stringify(next));
+  }
+
+  function updateSoundSettings(next: NotificationSoundSettings) {
+    setSoundSettings(next);
+    saveNotificationSoundSettings(next);
   }
 
   if (!token) {
@@ -467,6 +489,37 @@ export default function MobileShell({ mode }: { mode: Mode }) {
             <h2>My profile</h2>
             <p className="mobileMeta">Admin / Manager / Sales / Support permissions follow desktop CRM.</p>
           </div>
+          <div className="mobilePanel">
+            <h2>New message sound</h2>
+            <label className="mobileSoundToggle">
+              <input
+                type="checkbox"
+                checked={soundSettings.enabled}
+                onChange={(event) => updateSoundSettings({ ...soundSettings, enabled: event.target.checked })}
+              />
+              Enable sound alert
+            </label>
+            <label className="mobileSoundControl">
+              <span>Volume {Math.round(soundSettings.volume * 100)}%</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={Math.round(soundSettings.volume * 100)}
+                onChange={(event) => updateSoundSettings({ ...soundSettings, volume: Number(event.target.value) / 100 })}
+              />
+            </label>
+            <label className="mobileSoundControl">
+              <span>Sound</span>
+              <select
+                value={soundSettings.tone}
+                onChange={(event) => updateSoundSettings({ ...soundSettings, tone: event.target.value as NotificationSoundTone })}
+              >
+                {notificationToneOptions.map((tone) => <option key={tone.value} value={tone.value}>{tone.label}</option>)}
+              </select>
+            </label>
+            <button className="mobilePrimary" onClick={() => playNewMessageSound({ force: true, settings: soundSettings })}>Test sound</button>
+          </div>
           <button className="mobileCard" onClick={() => Notification.requestPermission()}><Bell size={20} />Browser notification</button>
           <button className="mobileCard" onClick={() => alert("Password change is handled by web admin auth.")}><UserRound size={20} />Change password</button>
           <button className="mobilePrimary" style={{ margin: 10 }} onClick={() => { localStorage.removeItem(TOKEN_KEY); location.href = "/mobile/inbox"; }}>Log out</button>
@@ -518,6 +571,11 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
   const [profileOpen, setProfileOpen] = useState(false);
   const [typing, setTyping] = useState(false);
   const [offline, setOffline] = useState(false);
+  const [soundSettings, setSoundSettings] = useState<NotificationSoundSettings>({
+    enabled: true,
+    volume: 0.7,
+    tone: "chime",
+  });
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -531,6 +589,10 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
       document.body.style.position = previousPosition;
       document.body.style.width = previousWidth;
     };
+  }, []);
+
+  useEffect(() => {
+    setSoundSettings(getNotificationSoundSettings());
   }, []);
 
   useEffect(() => {
@@ -678,7 +740,7 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
       socket.emit("conversation.join", { conversationId });
     });
     socket.on("disconnect", () => setOffline(true));
-    socket.on("message.created", (event: { conversationId?: string }) => {
+    socket.on("message.created", (event: { conversationId?: string; message?: { direction?: string | null } }) => {
       if (event.conversationId !== conversationId) return;
       void queryClient.invalidateQueries({ queryKey: ["mobile-messages", conversationId] });
       void queryClient.invalidateQueries({ queryKey: ["mobile-conversation", conversationId] });
@@ -687,7 +749,7 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
       } else {
         setShowNewMessage(true);
       }
-      playBeep();
+      if (shouldPlayNotificationSound(event)) playNewMessageSound({ settings: soundSettings });
     });
     socket.on("message.updated", (event: { conversationId?: string }) => {
       if (event.conversationId === conversationId) void queryClient.invalidateQueries({ queryKey: ["mobile-messages", conversationId] });
@@ -708,7 +770,7 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
       socket.emit("conversation.leave", { conversationId });
       socket.disconnect();
     };
-  }, [conversationId, isAtBottom, messages.length, queryClient]);
+  }, [conversationId, isAtBottom, messages.length, queryClient, soundSettings]);
 
   useEffect(() => {
     if (!conversationId || !token) return;
@@ -1172,8 +1234,4 @@ async function notify(title: string, body: string) {
   if (Notification.permission === "granted") new Notification(title, { body, icon: "/mobile-icon.svg" });
 }
 
-function playBeep() {
-  const audio = new Audio("data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=");
-  audio.play().catch(() => undefined);
-}
 

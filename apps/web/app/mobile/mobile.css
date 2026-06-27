@@ -804,6 +804,36 @@ body {
   margin-bottom: 8px;
 }
 
+.mobileSoundToggle,
+.mobileSoundControl {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  color: var(--mobile-text);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.mobileSoundToggle {
+  grid-template-columns: 22px 1fr;
+  align-items: center;
+}
+
+.mobileSoundControl input[type="range"] {
+  width: 100%;
+  accent-color: var(--mobile-blue);
+}
+
+.mobileSoundControl select {
+  min-height: 44px;
+  border: 1px solid var(--mobile-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--mobile-text);
+  padding: 0 12px;
+  font-weight: 700;
+}
+
 .mobilePrimary {
   width: 100%;
   min-height: 44px;

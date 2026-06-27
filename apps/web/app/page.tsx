@@ -19,10 +19,20 @@ import {
   Tag,
   UserRound,
   Video,
+  Volume2,
   X,
 } from "lucide-react";
 import { ClipboardEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
+import {
+  getNotificationSoundSettings,
+  notificationToneOptions,
+  playNewMessageSound,
+  saveNotificationSoundSettings,
+  shouldPlayNotificationSound,
+  type NotificationSoundSettings,
+  type NotificationSoundTone,
+} from "./notificationSound";
 
 const API_BASE = "/api/backend";
 const SOCKET_URL =
@@ -122,6 +132,12 @@ export default function Page() {
   const [draft, setDraft] = useState("");
   const [activeAiLogId, setActiveAiLogId] = useState<string | null>(null);
   const [attachmentOpen, setAttachmentOpen] = useState(false);
+  const [soundSettingsOpen, setSoundSettingsOpen] = useState(false);
+  const [soundSettings, setSoundSettings] = useState<NotificationSoundSettings>({
+    enabled: true,
+    volume: 0.7,
+    tone: "chime",
+  });
   const [sending, setSending] = useState(false);
   const [composerStatus, setComposerStatus] = useState("");
   const [loading, setLoading] = useState(true);
@@ -134,6 +150,7 @@ export default function Page() {
     if (window.matchMedia("(max-width: 759px)").matches) {
       window.location.replace("/mobile/inbox");
     }
+    setSoundSettings(getNotificationSoundSettings());
   }, []);
 
   const loadConversations = async (channel = activeChannel) => {
@@ -167,11 +184,12 @@ export default function Page() {
 
   useEffect(() => {
     const socket = io(SOCKET_URL, { transports: ["websocket", "polling"] });
-    socket.on("message.created", (event: { conversationId?: string }) => {
+    socket.on("message.created", (event: { conversationId?: string; message?: { direction?: string | null } }) => {
       loadConversations(activeChannel).catch(() => undefined);
       if (event.conversationId && event.conversationId === activeConversationId) {
         loadDetail(event.conversationId).catch(() => undefined);
       }
+      if (shouldPlayNotificationSound(event)) playNewMessageSound();
     });
     socket.on("message.status", (event: { conversationId?: string }) => {
       loadConversations(activeChannel).catch(() => undefined);
@@ -305,6 +323,11 @@ export default function Page() {
     setComposerStatus("附件已上传，可以发送给客户");
   }
 
+  function updateSoundSettings(next: NotificationSoundSettings) {
+    setSoundSettings(next);
+    saveNotificationSoundSettings(next);
+  }
+
   return (
     <main className="shell">
       <aside className="rail">
@@ -326,9 +349,53 @@ export default function Page() {
             </button>
           );
         })}
-        <button className="railButton bottom" title="系统设置">
+        <button className="railButton bottom" title="系统设置" onClick={() => setSoundSettingsOpen((open) => !open)}>
           <Settings size={20} />
         </button>
+        {soundSettingsOpen && (
+          <section className="soundSettingsPanel">
+            <header>
+              <div>
+                <strong>新消息声音</strong>
+                <p>客户新消息进来时播放</p>
+              </div>
+              <button className="iconButton" onClick={() => setSoundSettingsOpen(false)} aria-label="关闭声音设置">
+                <X size={17} />
+              </button>
+            </header>
+            <label className="soundToggle">
+              <input
+                type="checkbox"
+                checked={soundSettings.enabled}
+                onChange={(event) => updateSoundSettings({ ...soundSettings, enabled: event.target.checked })}
+              />
+              开启声音提醒
+            </label>
+            <label className="soundControl">
+              <span>音量 {Math.round(soundSettings.volume * 100)}%</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={Math.round(soundSettings.volume * 100)}
+                onChange={(event) => updateSoundSettings({ ...soundSettings, volume: Number(event.target.value) / 100 })}
+              />
+            </label>
+            <label className="soundControl">
+              <span>提示音</span>
+              <select
+                value={soundSettings.tone}
+                onChange={(event) => updateSoundSettings({ ...soundSettings, tone: event.target.value as NotificationSoundTone })}
+              >
+                {notificationToneOptions.map((tone) => <option key={tone.value} value={tone.value}>{tone.label}</option>)}
+              </select>
+            </label>
+            <button className="soundTestButton" onClick={() => playNewMessageSound({ force: true, settings: soundSettings })}>
+              <Volume2 size={17} />
+              测试声音
+            </button>
+          </section>
+        )}
       </aside>
 
       <section className="listPane">
