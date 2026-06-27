@@ -203,38 +203,44 @@ export class MessengerSyncService {
       where: { isActive: false },
       select: { id: true },
     });
+    const fakeCustomers = await this.findFakeCustomers();
 
     const fullyDirtyConversations = await this.findFullyDirtyConversations(touchedConversationIds, messageIds);
-    const emptyConversations = await this.findEmptyConversations([...touchedConversationIds, ...invalidEmptyConversationIds]);
+    const fakeConversationIds = fakeCustomers.flatMap((customer) => customer.conversations.map((conversation) => conversation.id));
+    const fakeMessageIds = fakeCustomers.flatMap((customer) => customer.messages.map((message) => message.id));
+    const emptyConversations = await this.findEmptyConversations([...touchedConversationIds, ...invalidEmptyConversationIds, ...fakeConversationIds]);
     const conversationIds = [
       ...new Set([
         ...invalidEmptyConversationIds,
+        ...fakeConversationIds,
         ...fullyDirtyConversations.map((conversation) => conversation.id),
         ...emptyConversations.map((conversation) => conversation.id),
       ]),
     ];
-    const customerIds = [...new Set([...touchedCustomerIds, ...emptyConversations.map((conversation) => conversation.customerId)])];
+    const customerIds = [...new Set([...touchedCustomerIds, ...fakeCustomers.map((customer) => customer.id), ...emptyConversations.map((conversation) => conversation.customerId)])];
     const emptyCustomers = await this.findEmptyCustomers(customerIds);
 
     const plan = {
       dryRun,
       testMessages: testMessages.length,
       duplicateMessages: duplicateMessages.length,
-      messagesToDelete: messageIds.length,
+      messagesToDelete: [...new Set([...messageIds, ...fakeMessageIds])].length,
       invalidMetaConversations: invalidEmptyConversationIds.length,
       fullyDirtyConversations: fullyDirtyConversations.length,
+      fakeCustomers: fakeCustomers.length,
       emptyConversations: emptyConversations.length,
       conversationsToDelete: conversationIds.length,
       inactiveAiMaterials: inactiveMaterials.length,
-      emptyCustomers: emptyCustomers.length,
+      emptyCustomers: [...new Set([...emptyCustomers.map((customer) => customer.id), ...fakeCustomers.map((customer) => customer.id)])].length,
     };
 
     if (dryRun) return { ok: true, ...plan };
 
-    if (messageIds.length) {
-      await this.prisma.messageAttachment.deleteMany({ where: { messageId: { in: messageIds } } });
-      await this.prisma.aiReplyLog.deleteMany({ where: { messageId: { in: messageIds } } });
-      await this.prisma.message.deleteMany({ where: { id: { in: messageIds } } });
+    const allMessageIds = [...new Set([...messageIds, ...fakeMessageIds])];
+    if (allMessageIds.length) {
+      await this.prisma.messageAttachment.deleteMany({ where: { messageId: { in: allMessageIds } } });
+      await this.prisma.aiReplyLog.deleteMany({ where: { messageId: { in: allMessageIds } } });
+      await this.prisma.message.deleteMany({ where: { id: { in: allMessageIds } } });
     }
 
     if (conversationIds.length) {
@@ -248,10 +254,12 @@ export class MessengerSyncService {
       await this.prisma.aiTrainingMaterial.deleteMany({ where: { id: { in: inactiveMaterials.map((item) => item.id) } } });
     }
 
-    if (emptyCustomers.length) {
-      const ids = emptyCustomers.map((customer) => customer.id);
+    const allEmptyCustomerIds = [...new Set([...emptyCustomers.map((customer) => customer.id), ...fakeCustomers.map((customer) => customer.id)])];
+    if (allEmptyCustomerIds.length) {
+      const ids = allEmptyCustomerIds;
       await this.prisma.customerTag.deleteMany({ where: { customerId: { in: ids } } });
       await this.prisma.internalNote.deleteMany({ where: { customerId: { in: ids } } });
+      await this.prisma.callSession.deleteMany({ where: { customerId: { in: ids } } });
       await this.prisma.customerPhone.deleteMany({ where: { customerId: { in: ids } } });
       await this.prisma.customer.deleteMany({ where: { id: { in: ids } } });
     }
@@ -308,6 +316,32 @@ export class MessengerSyncService {
       include: { messages: { select: { id: true }, take: 1 } },
     });
     return conversations.filter((conversation) => conversation.messages.length === 0);
+  }
+
+  private async findFakeCustomers() {
+    const fakePhones = [
+      "12065550000",
+      "+12065550000",
+      "15550001111",
+      "+15550001111",
+      "17135550123",
+      "+17135550123",
+      "17135550124",
+      "+17135550124",
+    ];
+    return this.prisma.customer.findMany({
+      where: {
+        OR: [
+          { displayName: { equals: "Test User", mode: "insensitive" } },
+          { displayName: { equals: "Tester", mode: "insensitive" }, primaryPhone: { in: fakePhones } },
+          { primaryPhone: { in: fakePhones } },
+        ],
+      },
+      include: {
+        conversations: { select: { id: true } },
+        messages: { select: { id: true } },
+      },
+    });
   }
 
   private async findFullyDirtyConversations(candidateIds: string[], dirtyMessageIds: string[]) {
