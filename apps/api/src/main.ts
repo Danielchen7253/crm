@@ -20,8 +20,8 @@ async function bootstrap() {
   app.setGlobalPrefix("api", {
     exclude: [
       { path: "/", method: RequestMethod.GET },
-      { path: "messenger", method: RequestMethod.ALL },
-      { path: "/messenger", method: RequestMethod.ALL },
+      { path: "api/messenger", method: RequestMethod.ALL },
+      { path: "/api/messenger", method: RequestMethod.ALL },
     ],
   });
   const server = app.getHttpAdapter().getInstance();
@@ -37,9 +37,6 @@ async function bootstrap() {
 
   server.use("/messenger", (request: any, response: any, next: () => void) => {
     return rewriteLegacyMessengerWebhook(request, response, next, "/messenger");
-  });
-  server.use("/api/messenger", (request: any, response: any, next: () => void) => {
-    return rewriteLegacyMessengerWebhook(request, response, next, "/api/messenger");
   });
 
   const readQueryValue = (query: Record<string, unknown> | undefined, name: string): string | undefined => {

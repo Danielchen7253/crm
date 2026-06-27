@@ -26,6 +26,18 @@ export class MessengerCompatController {
     return { ok: true, channel: "messenger", count: messages.length };
   }
 
+  @Get("api/messenger")
+  @HttpCode(HttpStatus.OK)
+  verifyLegacyMessengerApi(@Query() query: Record<string, unknown>) {
+    return this.verifyMessenger(query);
+  }
+
+  @Post("api/messenger")
+  @HttpCode(HttpStatus.OK)
+  async ingestLegacyMessengerApi(@Body() body: any) {
+    return this.ingestMessenger(body);
+  }
+
   private resolveMetaVerifyToken() {
     return (
       process.env.META_VERIFY_TOKEN ||
