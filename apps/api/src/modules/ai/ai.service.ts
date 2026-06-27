@@ -25,6 +25,7 @@ export class AiService {
     };
 
     const suggestion = this.client ? await this.askModel(message.text).catch(() => fallback) : fallback;
+    const action = this.normalizeAction(suggestion.action, suggestion.confidence);
 
     return this.prisma.aiReplyLog.create({
       data: {
@@ -34,7 +35,7 @@ export class AiService {
         intent: suggestion.intent,
         suggestedReply: suggestion.suggested_reply,
         confidence: suggestion.confidence,
-        action: suggestion.action as AiAction,
+        action,
         rawResponse: suggestion,
       },
     });
@@ -54,5 +55,14 @@ export class AiService {
       ],
     });
     return JSON.parse(response.choices[0]?.message.content ?? "{}");
+  }
+
+  private normalizeAction(action: unknown, confidence: unknown): AiAction {
+    const normalized = String(action ?? "").trim().toLowerCase();
+    const score = Number(confidence);
+    if (normalized === "ask_human" || (Number.isFinite(score) && score < 0.7)) return AiAction.ask_human;
+    if (normalized === "no_reply") return AiAction.no_reply;
+    if (normalized === "suggest_reply" || normalized === "send_reply" || normalized === "reply") return AiAction.suggest_reply;
+    return AiAction.ask_human;
   }
 }
