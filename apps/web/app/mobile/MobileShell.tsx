@@ -1059,7 +1059,7 @@ function MessageRow({
               <button onClick={onRetry}>Retry</button>
             </div>
           )}
-          {direction === "outbound" && messageText(message).trim() && !failed && !message.id.startsWith("temp-") && (
+          {direction === "outbound" && messageText(message).trim() && !message.id.startsWith("temp-") && (
             <div className="mobileSentReplyActions">
               <button onClick={onSaveAiMaterial}>保存为AI教材</button>
               {saveStatus && <span>{saveStatus}</span>}

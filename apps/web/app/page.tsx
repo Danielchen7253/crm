@@ -616,7 +616,7 @@ export default function Page() {
                     </a>
                   ))}
                   <span>{new Date(message.sentAt).toLocaleString()}</span>
-                  {message.direction === "outbound" && messageText(message).trim() && message.status !== "failed" && (
+                  {message.direction === "outbound" && messageText(message).trim() && (
                     <div className="sentReplyActions">
                       <button onClick={() => void saveMessageAsAiMaterial(message)}>保存为AI教材</button>
                       {replySaveStatus[message.id] && <small>{replySaveStatus[message.id]}</small>}
