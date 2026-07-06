@@ -100,3 +100,83 @@ Run:
 ```bash
 pnpm migrate:legacy
 ```
+
+## Channel readiness audit (recommended before end-to-end tests)
+
+```bash
+pnpm check:channels
+```
+
+If your deployment uses `META_WEBHOOK_VERIFY_TOKEN` as the webhook verify value, set it identically with `META_VERIFY_TOKEN` (the route accepts both).
+
+This prints a per-channel readiness checklist from `.env`:
+
+- WhatsApp
+- Messenger
+- Instagram
+- SMS
+- Website Chat
+- Email
+- Phone
+
+After the config check passes, run these runtime checks:
+
+1. Open a conversation for each channel in Inbox
+2. Send one outbound reply from CRM
+3. Confirm status in message list updates (queued/sent/read/failed and provider)
+4. For SMS/WhatsApp/Phone, verify callback/webhook endpoints can receive status if configured
+5. For Phone, confirm call sessions progress from ringing -> active -> completed/failed/missed
+
+You can also run a quick channel smoke script:
+
+```bash
+node scripts/smoke-channel-send.mjs https://coolfix-omni-api.onrender.com
+```
+
+Append `--send` to actually send test replies to one conversation per channel:
+
+```bash
+node scripts/smoke-channel-send.mjs https://coolfix-omni-api.onrender.com --send
+```
+
+Dry-run mode (without `--send`) is recommended before credentials are finalized.
+
+## Production channel recovery runbook (required to make all channels active)
+
+Run these commands in this repo whenever production env changes:
+
+```bash
+node scripts/check-channel-config.mjs
+node scripts/sync-channel-accounts.mjs
+node scripts/verify-live-channels.mjs https://coolfix-omni-api.onrender.com <META_VERIFY_TOKEN>
+node scripts/smoke-channel-send.mjs https://coolfix-omni-api.onrender.com
+```
+
+Only after all env vars are set, execute a real send smoke test:
+
+```bash
+node scripts/smoke-channel-send.mjs https://coolfix-omni-api.onrender.com --send
+```
+
+Current expected blocker list until production env is updated:
+
+- `META_VERIFY_TOKEN` / `META_WEBHOOK_VERIFY_TOKEN`
+- `WHATSAPP_ACCESS_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID` (avoid `code 190`)
+- `MESSENGER_PAGE_ACCESS_TOKEN` + `MESSENGER_PAGE_ID`
+- `INSTAGRAM_ACCESS_TOKEN` + `INSTAGRAM_BUSINESS_ACCOUNT_ID`
+- `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN` + `TWILIO_DEFAULT_FROM`
+- `WEBSITE_CHAT_WEBHOOK_URL`
+- `WEBSITE_CHAT_ALLOWED_ORIGINS` (optional; set to comma-separated website origins that are allowed to call `/api/webhooks/website-chat`, e.g. `https://shop.gasket.example,https://www.gasket.example`)
+- `CORS_ALLOW_ALL_ORIGINS=1` (temporary debug switch only; prefer explicit origins above)
+- `RESEND_API_KEY` + `RESEND_FROM` (or `EMAIL_WEBHOOK_URL`)
+- `API_PUBLIC_URL=https://coolfix-omni-api.onrender.com`
+
+After `sync-channel-accounts`, the target account set should include:
+
+- `whatsapp` / `AUTO_WHATSAPP`
+- `messenger` / `AUTO_MESSENGER`
+- `instagram` / `AUTO_INSTAGRAM`
+- `sms` / `AUTO_TWILIO_SMS`
+- `phone` / `AUTO_TWILIO_VOICE`
+- `website_chat` / `AUTO_WEBSITE_CHAT`
+- `email` / `AUTO_EMAIL_RESEND` (or `AUTO_EMAIL_WEBHOOK`)

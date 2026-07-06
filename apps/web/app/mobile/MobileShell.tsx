@@ -51,6 +51,7 @@ const TOKEN_KEY = "coolfix.crm.mobile.web.token";
 const DRAFT_PREFIX = "coolfix.crm.mobile.draft.";
 const TASK_KEY = "coolfix.crm.mobile.web.tasks";
 const PAGE_SIZE = 30;
+const CUSTOMER_PAGE_SIZE = 100;
 const mobileQueryClient = new QueryClient();
 
 type Channel = "messenger" | "whatsapp" | "sms" | "instagram" | "email" | "website_chat" | "phone";
@@ -120,6 +121,15 @@ type Customer = {
   conversations?: { id: string; channel: Channel; lastMessageAt?: string | null }[];
 };
 
+type CustomerPage = {
+  data: Customer[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasMore: boolean;
+};
+
 type Conversation = {
   id: string;
   channel: Channel;
@@ -184,6 +194,9 @@ export default function MobileShell({ mode }: { mode: Mode }) {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customer, setCustomer] = useState<Customer | null>(null);
+  const [customerPage, setCustomerPage] = useState(1);
+  const [customerTotal, setCustomerTotal] = useState(0);
+  const [customerTotalPages, setCustomerTotalPages] = useState(1);
   const [quickReplies, setQuickReplies] = useState<QuickReply[]>([]);
   const [draft, setDraft] = useState("");
   const [tasks, setTasks] = useState<FollowTask[]>([]);
@@ -197,6 +210,7 @@ export default function MobileShell({ mode }: { mode: Mode }) {
     tone: "chime",
   });
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const readTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const conversationId = mode === "conversation" ? params.id : undefined;
   const customerId = mode === "customer" ? params.id : undefined;
@@ -215,6 +229,13 @@ export default function MobileShell({ mode }: { mode: Mode }) {
     return logs.find((log) => log.action !== "no_reply" && log.suggestedReply);
   }, [conversation]);
 
+  const clearUnreadConversation = useCallback((targetConversationId: string) => {
+    setConversations((current) =>
+      current.map((item) => (item.id === targetConversationId ? { ...item, unreadCount: 0 } : item)),
+    );
+    setConversation((current) => (current?.id === targetConversationId ? { ...current, unreadCount: 0 } : current));
+  }, []);
+
   const loadConversations = useCallback(async () => {
     const params = new URLSearchParams();
     if (filter !== "all" && filter !== "unread" && filter !== "mine") params.set("channel", filter);
@@ -225,9 +246,17 @@ export default function MobileShell({ mode }: { mode: Mode }) {
   }, [filter, query, token]);
 
   const loadCustomers = useCallback(async () => {
-    const params = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : "";
-    setCustomers(await api<Customer[]>(`/customers${params}`, token));
-  }, [query, token]);
+    if (!token) return;
+    const params = new URLSearchParams({
+      limit: String(CUSTOMER_PAGE_SIZE),
+      page: String(customerPage),
+    });
+    if (query.trim()) params.set("q", query.trim());
+    const result = await api<CustomerPage>(`/customers?${params}`, token);
+    setCustomers(result.data);
+    setCustomerTotal(result.total);
+    setCustomerTotalPages(Math.max(result.totalPages, 1));
+  }, [customerPage, query, token]);
 
   const loadConversation = useCallback(async (id: string) => {
     const data = await api<Conversation>(`/conversations/${id}`, token);
@@ -280,6 +309,10 @@ export default function MobileShell({ mode }: { mode: Mode }) {
     }
     setSoundSettings(getNotificationSoundSettings());
   }, []);
+
+  useEffect(() => {
+    if (mode === "customers") setCustomerPage(1);
+  }, [mode]);
 
   useEffect(() => {
     void loadAll();
@@ -416,7 +449,15 @@ export default function MobileShell({ mode }: { mode: Mode }) {
       {(mode === "inbox" || mode === "customers") && (
         <label className="mobileSearch">
           <Search size={17} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void loadAll()} placeholder="Search name, phone, email, tag, message" />
+          <input
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              if (mode === "customers") setCustomerPage(1);
+            }}
+            onKeyDown={(event) => event.key === "Enter" && void loadAll()}
+            placeholder="Search name, phone, email, tag, message"
+          />
         </label>
       )}
       {mode === "inbox" && (
@@ -435,6 +476,30 @@ export default function MobileShell({ mode }: { mode: Mode }) {
             {defaultTags.map((tag) => <span className="mobileFilter" key={tag}>{tag}</span>)}
           </div>
           {customers.map((item) => <CustomerCard customer={item} key={item.id} />)}
+          <div className="mobilePager" style={{ margin: "8px 0 0" }}>
+            <button
+              className="mobileActionBtn"
+              disabled={customerPage <= 1 || loading}
+              onClick={() => {
+                setCustomerPage((current) => Math.max(current - 1, 1));
+              }}
+            >
+              上一页
+            </button>
+            <span className="mobilePagerInfo">
+              第 {customerPage}/{customerTotalPages} 页 · 共 {customerTotal} 人
+            </span>
+            <button
+              className="mobileActionBtn"
+              disabled={!customerPage || customerPage >= customerTotalPages || loading}
+              onClick={() => {
+                setCustomerPage((current) => Math.min(current + 1, customerTotalPages));
+              }}
+              style={{ textAlign: "center" }}
+            >
+              下一页
+            </button>
+          </div>
         </section>
       )}
       {mode === "customer" && customer && (
@@ -559,6 +624,7 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
   const shellRef = useRef<HTMLElement | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
   const composerRef = useRef<HTMLElement | null>(null);
+  const readTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -809,9 +875,27 @@ function MobileConversationScreen({ conversationId, token }: { conversationId: s
   }, [conversationId, isAtBottom, messages.length, queryClient, soundSettings]);
 
   useEffect(() => {
-    if (!conversationId || !token) return;
-    void api(`/conversations/${conversationId}/read`, token, { method: "POST" }).catch(() => undefined);
-  }, [conversationId, token]);
+    if (!conversationId || !token || !conversation) return;
+    if (readTimeoutRef.current) clearTimeout(readTimeoutRef.current);
+    if (conversation.unreadCount <= 0) return;
+    readTimeoutRef.current = setTimeout(async () => {
+      try {
+        await api(`/conversations/${conversationId}/read`, token, { method: "POST" });
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["mobile-conversation", conversationId] }),
+          queryClient.invalidateQueries({ queryKey: ["mobile-messages", conversationId] }),
+        ]);
+      } catch {
+        // keep unread count until next successful interaction
+      }
+    }, 1000);
+    return () => {
+      if (readTimeoutRef.current) {
+        clearTimeout(readTimeoutRef.current);
+        readTimeoutRef.current = null;
+      }
+    };
+  }, [conversationId, token, conversation?.unreadCount, queryClient]);
 
   useEffect(() => {
     if (!messages.length) return;

@@ -1,9 +1,24 @@
 import { ConnectedSocket, MessageBody, SubscribeMessage, WebSocketGateway, WebSocketServer } from "@nestjs/websockets";
 import { Server, Socket } from "socket.io";
 
+const allowedSocketOrigins = (() => {
+  const entries = [
+    ...((process.env.WEB_ORIGIN ?? "").split(",") ?? []),
+    ...((process.env.WEBSITE_CHAT_ALLOWED_ORIGINS ?? "").split(",") ?? []),
+    process.env.API_PUBLIC_URL,
+    process.env.PUBLIC_APP_URL,
+  ];
+  const normalized = entries
+    .map((origin) => (origin ?? "").trim())
+    .filter((origin) => origin.length > 0)
+    .map((origin) => origin.replace(/\/+$/, ""));
+  const deduped = Array.from(new Set(normalized));
+  return deduped.length === 0 ? true : deduped;
+})();
+
 @WebSocketGateway({
   cors: {
-    origin: process.env.WEB_ORIGIN?.split(",") ?? true,
+    origin: process.env.CORS_ALLOW_ALL_ORIGINS === "1" ? true : allowedSocketOrigins,
     credentials: true,
   },
 })

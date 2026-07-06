@@ -8,6 +8,7 @@ export class CallsService {
 
   async startInboundCall(input: { fromPhone: string; toPhone: string; twilioCallSid?: string }) {
     const phone = this.normalizePhone(input.fromPhone);
+    const toPhone = this.normalizePhone(input.toPhone);
     let customer = await this.prisma.customer.findFirst({ where: { primaryPhone: phone, deletedAt: null } });
     if (!customer) {
       customer = await this.prisma.customer.create({
@@ -27,13 +28,15 @@ export class CallsService {
       create: { customerId: customer.id, phone, isPrimary: true, label: "phone" },
     });
 
+    const channelAccountId = await this.resolvePhoneChannelAccount({ fromPhone: phone, toPhone });
     const conversation = await this.prisma.conversation.upsert({
       where: { channel_externalThreadId: { channel: Channel.phone, externalThreadId: phone } },
-      update: { customerId: customer.id, lastMessageAt: new Date() },
+      update: { customerId: customer.id, lastMessageAt: new Date(), ...(channelAccountId ? { channelAccountId } : {}) },
       create: {
         customerId: customer.id,
         channel: Channel.phone,
         externalThreadId: phone,
+        ...(channelAccountId ? { channelAccountId } : {}),
         status: "open",
         lastMessageAt: new Date(),
       },
@@ -99,6 +102,38 @@ export class CallsService {
         events: { create: { type: CallEventType.call_started, payload: input } },
       },
     });
+  }
+
+  private async resolvePhoneChannelAccount(input: { fromPhone: string; toPhone?: string | null }) {
+    const candidateNumbers = [input.toPhone, input.fromPhone].map((value) => this.normalizePhone(value ?? "")).filter((value): value is string => Boolean(value));
+    if (!candidateNumbers.length) {
+      const fallback = await this.prisma.channelAccount.findFirst({
+        where: { channel: Channel.phone, isActive: true },
+        orderBy: { createdAt: "asc" },
+      });
+      return fallback?.id ?? null;
+    }
+
+    const direct = await this.prisma.channelAccount
+      .findFirst({
+        where: {
+          channel: Channel.phone,
+          isActive: true,
+          OR: [
+            { providerAccountId: { in: candidateNumbers } },
+            { externalPageId: { in: candidateNumbers } },
+            { fromAddress: { in: candidateNumbers } },
+          ],
+        },
+      })
+      .catch(() => null);
+    if (direct) return direct.id;
+
+    const fallback = await this.prisma.channelAccount.findFirst({
+      where: { channel: Channel.phone, isActive: true },
+      orderBy: { createdAt: "asc" },
+    });
+    return fallback?.id ?? null;
   }
 
   async markRealtimeConnected(callSessionId: string, payload: unknown) {

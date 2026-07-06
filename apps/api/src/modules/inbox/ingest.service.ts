@@ -51,6 +51,7 @@ export class IngestService {
       data: {
         conversationId: conversation.id,
         customerId: customer.id,
+        channelAccountId: conversation.channelAccountId,
         channel,
         provider: input.provider,
         externalMessageId: input.externalMessageId,
@@ -218,18 +219,87 @@ export class IngestService {
     input: NormalizedInboundMessage,
   ) {
     const externalThreadId = input.externalThreadId ?? `${input.provider}:${input.senderExternalId}`;
+    const channelAccountId = await this.resolveChannelAccountId(channel, input.channelAccountExternalId);
     return this.prisma.conversation.upsert({
       where: { channel_externalThreadId: { channel, externalThreadId } },
-      update: { customerId, identityId },
+      update: { customerId, identityId, ...(channelAccountId ? { channelAccountId } : {}) },
       create: {
         customerId,
         identityId,
         channel,
         externalThreadId,
+        ...(channelAccountId ? { channelAccountId } : {}),
         status: "open",
         lastMessageAt: input.timestamp ? new Date(input.timestamp) : new Date(),
       },
     });
+  }
+
+  private async resolveChannelAccountId(channel: Channel, channelAccountExternalId?: string | null): Promise<string | null> {
+    const pickFallback = async () =>
+      this.pickBestChannelAccount(
+        await this.prisma.channelAccount.findMany({
+          where: { channel, isActive: true },
+          orderBy: { createdAt: "asc" },
+        }),
+      )?.id ?? null;
+
+    const normalizedExternalId = channelAccountExternalId?.trim?.();
+    if (!normalizedExternalId) return pickFallback();
+
+    const matched = await this.prisma.channelAccount.findMany({
+      where: {
+        channel,
+        isActive: true,
+        OR: [{ providerAccountId: normalizedExternalId }, { externalPageId: normalizedExternalId }],
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    if (matched.length) {
+      const picked = this.pickBestChannelAccount(matched);
+      return picked?.id ?? null;
+    }
+
+    return this.pickFallbackWithPriority(channel);
+  }
+
+  private async pickFallbackWithPriority(channel: Channel): Promise<string | null> {
+    const accounts = await this.prisma.channelAccount.findMany({
+      where: { channel, isActive: true },
+      orderBy: { createdAt: "asc" },
+    });
+    return this.pickBestChannelAccount(accounts)?.id ?? null;
+  }
+
+  private pickBestChannelAccount(accounts: Array<{
+    id: string;
+    name?: string | null;
+    encryptedSecret?: string | null;
+    encryptedToken?: string | null;
+    fromAddress?: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }>): { id: string; name?: string | null; encryptedSecret?: string | null; encryptedToken?: string | null; fromAddress?: string | null; createdAt: Date; updatedAt: Date; } | null {
+    if (!accounts.length) return null;
+
+    const score = (account: typeof accounts[number]) => {
+      let value = 0;
+      const name = (account.name ?? "").toLowerCase();
+      if (name.startsWith("auto_")) value += 16;
+      if (name.includes("twilio") || name.includes("whatsapp") || name.includes("messenger") || name.includes("instagram") || name.includes("email") || name.includes("website")) {
+        value += 4;
+      }
+      if (account.encryptedSecret?.trim()) value += 8;
+      if (account.encryptedToken?.trim()) value += 4;
+      if (account.fromAddress?.trim()) value += 2;
+      return value;
+    };
+
+    return [...accounts].sort((left, right) => {
+      const diff = score(right) - score(left);
+      if (diff !== 0) return diff;
+      return right.updatedAt.getTime() - left.updatedAt.getTime();
+    })[0] ?? null;
   }
 
   private buildDedupeKey(input: NormalizedInboundMessage, sentAt: Date) {

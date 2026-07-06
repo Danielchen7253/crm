@@ -10,6 +10,7 @@ function readEnv(filePath) {
     if (idx < 0) continue;
     const key = line.slice(0, idx).trim();
     const value = line.slice(idx + 1).trim();
+    if (value === "") continue;
     env[key] = value;
   }
   return env;
@@ -30,13 +31,17 @@ function check(label, ok, details) {
   console.log(`${label.padEnd(24)} ${ok ? "OK" : "MISSING"}  ${details}`);
 }
 
-const envPath = path.join(process.cwd(), ".env");
-if (!fs.existsSync(envPath)) {
-  console.error("Missing .env; run: cp .env.example .env");
-  process.exit(1);
+function info(label, details) {
+  console.log(`${label.padEnd(24)} INFO  ${details}`);
 }
 
-const env = { ...process.env, ...readEnv(envPath) };
+const envPath = path.join(process.cwd(), ".env");
+const fileEnv = fs.existsSync(envPath) ? readEnv(envPath) : {};
+if (!fs.existsSync(envPath)) {
+  console.log("check-channel-config: no local .env found; using process environment only.");
+}
+
+const env = { ...fileEnv, ...process.env };
 
 console.log("CRM channel config audit");
 console.log("=======================");
@@ -64,8 +69,8 @@ check(
   "SMS",
   present(env.TWILIO_ACCOUNT_SID) &&
     present(env.TWILIO_AUTH_TOKEN) &&
-    (present(env.TWILIO_DEFAULT_FROM) || present(env.TWILIO_MESSAGING_SERVICE_SID) || present(env.TWILIO_PHONE_NUMBER)),
-  `sid=${present(env.TWILIO_ACCOUNT_SID) ? mask(env.TWILIO_ACCOUNT_SID) : "missing"}, from=${present(env.TWILIO_DEFAULT_FROM) || present(env.TWILIO_PHONE_NUMBER) ? "present" : "missing"}, svc=${present(env.TWILIO_MESSAGING_SERVICE_SID) ? "present" : "missing"}, statusCallback=${present(env.TWILIO_SMS_STATUS_CALLBACK_URL) ? "present" : present(env.API_PUBLIC_URL) ? "present-by-public-url" : "missing"}`,
+    (present(env.TWILIO_DEFAULT_FROM) || present(env.TWILIO_MESSAGING_SERVICE_SID) || present(env.TWILIO_PHONE_NUMBER) || present(env.TWILIO_FROM_NUMBER)),
+  `sid=${present(env.TWILIO_ACCOUNT_SID) ? mask(env.TWILIO_ACCOUNT_SID) : "missing"}, from=${present(env.TWILIO_DEFAULT_FROM) || present(env.TWILIO_PHONE_NUMBER) || present(env.TWILIO_FROM_NUMBER) ? "present" : "missing"}, svc=${present(env.TWILIO_MESSAGING_SERVICE_SID) ? "present" : "missing"}, statusCallback=${present(env.TWILIO_SMS_STATUS_CALLBACK_URL) ? "present" : present(env.API_PUBLIC_URL) ? "present-by-public-url" : "missing"}`,
 );
 
 check(
@@ -73,11 +78,25 @@ check(
   present(env.WEBSITE_CHAT_WEBHOOK_URL),
   `webhook=${present(env.WEBSITE_CHAT_WEBHOOK_URL) ? env.WEBSITE_CHAT_WEBHOOK_URL : "missing"}`,
 );
+if (present(env.WEBSITE_CHAT_WEBHOOK_URL) && isSelfCallbackWebhook(env.WEBSITE_CHAT_WEBHOOK_URL, "/api/webhooks/website-chat", env)) {
+  console.log(
+    "WEBSITE_CHAT".padEnd(24),
+    "MISSING  webhook=self-loop",
+    `webhook=${env.WEBSITE_CHAT_WEBHOOK_URL}`,
+  );
+}
 
 check(
   "META_WEBHOOK_VERIFY",
-  present(env.META_VERIFY_TOKEN),
-  `metaVerifyToken=${present(env.META_VERIFY_TOKEN) ? "present" : "missing"}, pages=${present(env.WEB_ORIGIN) ? "present" : "missing"}`,
+  present(
+    env.META_VERIFY_TOKEN ||
+      env.META_VERIFY ||
+      env.META_WEBHOOK_VERIFY_TOKEN ||
+      env.VERIFY_TOKEN ||
+      env.WEBHOOK_VERIFY_TOKEN ||
+      env.WEB_ORIGIN_VERIFY_TOKEN,
+  ),
+  `metaVerifyToken=${present(env.META_VERIFY_TOKEN) || present(env.META_VERIFY) || present(env.META_WEBHOOK_VERIFY_TOKEN) || present(env.VERIFY_TOKEN) || present(env.WEBHOOK_VERIFY_TOKEN) || present(env.WEB_ORIGIN_VERIFY_TOKEN) ? "present" : "missing"}, pages=${present(env.WEB_ORIGIN) ? "present" : "missing"}`,
 );
 
 check(
@@ -107,4 +126,33 @@ check(
 );
 
 console.log();
+info("SYNC_HINT", "Run `node scripts/sync-channel-accounts.mjs` to create/update API channel-accounts.");
+info("VERIFY_HINT", "Then run `node scripts/verify-live-channels.mjs <API_BASE> <META_VERIFY_TOKEN>`.");
 console.log("Tip: For runtime verification, send a test message from each conversation in Inbox and confirm outbound status updates.");
+function isSelfCallbackWebhook(url, expectedPath, env = process.env) {
+  if (!url) return false;
+  const expected = normalizePath(expectedPath);
+  if (!expected) return false;
+  const direct = normalizePath(url);
+  if (direct && (direct === expected || direct === `/api${expected}`)) return true;
+  try {
+    const parsed = new URL(url);
+    const envUrl = env.API_PUBLIC_URL ?? env.PUBLIC_APP_URL;
+    if (!envUrl) return false;
+    const parsedApi = new URL(envUrl);
+    const path = normalizePath(parsed.pathname);
+    return path && parsed.host === parsedApi.host && (path === expected || path === `/api${expected}`);
+  } catch {
+    return false;
+  }
+}
+
+function normalizePath(value) {
+  if (!value) return "";
+  const normalized = value.trim().toLowerCase();
+  if (!normalized.startsWith("/")) {
+    if (!normalized.startsWith("http://") && !normalized.startsWith("https://")) return "";
+    return "";
+  }
+  return normalized.replace(/\/+$/, "");
+}

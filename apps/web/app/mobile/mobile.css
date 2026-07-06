@@ -141,6 +141,21 @@ body {
   scrollbar-width: none;
 }
 
+.mobilePager {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px 10px;
+}
+
+.mobilePagerInfo {
+  color: var(--mobile-muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .mobileFilter {
   border: 0;
   white-space: nowrap;

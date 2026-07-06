@@ -10,27 +10,52 @@ export class CustomersController {
   ) {}
 
   @Get()
-  list(@Query("q") q?: string, @Query("tagAll") tagAll?: string, @Query("tagAny") tagAny?: string, @Query("tagNone") tagNone?: string) {
+  async list(
+    @Query("q") q?: string,
+    @Query("tagAll") tagAll?: string,
+    @Query("tagAny") tagAny?: string,
+    @Query("tagNone") tagNone?: string,
+    @Query("page") page = "1",
+    @Query("limit") limit = "100",
+    @Query("skip") skip?: string,
+  ) {
     const tagWhere = this.tags.customerWhereForFilter({
       q,
       all: this.splitTags(tagAll),
       any: this.splitTags(tagAny),
       none: this.splitTags(tagNone),
     });
-    return this.prisma.customer.findMany({
-      where: tagWhere,
-      include: {
-        tags: { include: { tag: true } },
-        identities: true,
-        conversations: {
-          orderBy: [{ lastMessageAt: "desc" }, { createdAt: "desc" }],
-          take: 1,
-          select: { id: true, channel: true, lastMessageAt: true },
+    const parsedPage = Math.max(Number.parseInt(page, 10), 1);
+    const parsedLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 100);
+    const explicitSkip = Number.isFinite(Number.parseInt(skip || "", 10)) ? Number.parseInt(skip || "", 10) : null;
+    const offset = explicitSkip !== null && explicitSkip >= 0 ? explicitSkip : (parsedPage - 1) * parsedLimit;
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.customer.findMany({
+        where: tagWhere,
+        include: {
+          tags: { include: { tag: true } },
+          identities: true,
+          conversations: {
+            orderBy: [{ lastMessageAt: "desc" }, { createdAt: "desc" }],
+            take: 1,
+            select: { id: true, channel: true, lastMessageAt: true },
+          },
         },
-      },
-      orderBy: [{ lastMessageAt: "desc" }, { createdAt: "desc" }],
-      take: 200,
-    });
+        orderBy: [{ lastMessageAt: "desc" }, { createdAt: "desc" }],
+        skip: offset,
+        take: parsedLimit,
+      }),
+      this.prisma.customer.count({ where: tagWhere }),
+    ]);
+
+    return {
+      data: items,
+      total,
+      page: explicitSkip !== null ? Math.floor(offset / parsedLimit) + 1 : parsedPage,
+      pageSize: parsedLimit,
+      totalPages: Math.max(Math.ceil(total / parsedLimit), 1),
+      hasMore: offset + parsedLimit < total,
+    };
   }
 
   @Get(":id")

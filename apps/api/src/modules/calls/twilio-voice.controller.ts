@@ -1,4 +1,4 @@
-import { Body, Controller, Header, Post } from "@nestjs/common";
+import { Body, Controller, Header, HttpCode, HttpStatus, Post } from "@nestjs/common";
 import { CallsService } from "./calls.service";
 import { IngestService } from "../inbox/ingest.service";
 
@@ -10,6 +10,7 @@ export class TwilioVoiceController {
   ) {}
 
   @Post("incoming")
+  @HttpCode(HttpStatus.OK)
   @Header("Content-Type", "text/xml")
   async incoming(@Body() body: any) {
     if (this.isSmsIncoming(body)) {
@@ -50,11 +51,13 @@ export class TwilioVoiceController {
   }
 
   @Post("recording")
+  @HttpCode(HttpStatus.OK)
   recording(@Body() body: any) {
     return { ok: true, recordingSid: body.RecordingSid, recordingUrl: body.RecordingUrl };
   }
 
   @Post("status")
+  @HttpCode(HttpStatus.OK)
   status(@Body() body: any) {
     return this.calls.updateFromTwilioStatus({
       callSid: body.CallSid,
