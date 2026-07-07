@@ -40,15 +40,15 @@ const SOCKET_URL =
   (process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/?$/, "").replace(/\/+$/, "") || "https://coolfix-omni-api.onrender.com");
 
 const channels = [
-  { key: "all", label: "鍏ㄩ儴", icon: Inbox },
-  { key: "unread", label: "鏈", icon: Clock3 },
+  { key: "all", label: "全部", icon: Inbox },
+  { key: "unread", label: "未读", icon: Clock3 },
   { key: "messenger", label: "Messenger", icon: MessageCircle },
   { key: "whatsapp", label: "WhatsApp", icon: Phone },
   { key: "sms", label: "SMS", icon: Phone },
   { key: "instagram", label: "Instagram", icon: MessageCircle },
   { key: "email", label: "Email", icon: Mail },
-  { key: "website_chat", label: "缃戠珯鑱婂ぉ", icon: MessageCircle },
-  { key: "phone", label: "鐢佃瘽", icon: Phone },
+  { key: "website_chat", label: "网站聊天", icon: MessageCircle },
+  { key: "phone", label: "电话", icon: Phone },
 ];
 
 type Attachment = {
@@ -135,25 +135,25 @@ function formatTime(value?: string) {
   const date = new Date(value);
   const now = Date.now();
   const diffMinutes = Math.max(0, Math.floor((now - date.getTime()) / 60000));
-  if (diffMinutes < 1) return "鍒氬垰";
-  if (diffMinutes < 60) return `${diffMinutes}鍒哷`;
-  if (diffMinutes < 1440) return `${Math.floor(diffMinutes / 60)}灏忔椂`;
+  if (diffMinutes < 1) return "刚才";
+  if (diffMinutes < 60) return `${diffMinutes}分钟`;
+  if (diffMinutes < 1440) return `${Math.floor(diffMinutes / 60)}小时`;
   return date.toLocaleDateString();
 }
 
 function channelLabel(channel: string) {
   if (channel === "whatsapp") return "WhatsApp";
   if (channel === "messenger") return "Messenger";
-  if (channel === "website_chat") return "缃戠珯鑱婂ぉ";
+  if (channel === "website_chat") return "网站聊天";
   if (channel === "sms") return "SMS";
-  if (channel === "phone") return "鐢佃瘽";
+  if (channel === "phone") return "电话";
   return channel;
 }
 
 function lastMessageText(conversation: Conversation) {
   const message = conversation.messages?.[0];
-  if (!message) return "鏆傛棤娑堟伅";
-  return messageText(message) || (message.attachments?.length ? `[${message.attachments[0].type}]` : "鏂版秷鎭?");
+  if (!message) return "暂无消息";
+  return messageText(message) || (message.attachments?.length ? `[${message.attachments[0].type}]` : "新消息");
 }
 
 function messageText(message: Message) {
@@ -181,20 +181,20 @@ function isFailedMessage(message: Message) {
 function messageStatusText(message: Message) {
   const channel = channelLabel(message.channel ?? "");
   if (message.direction !== "outbound") {
-    return `${channel} 鏀跺埌鏃堕棿 ${formatExactTime(message.sentAt)}`;
+    return `${channel} 收到时间 ${formatExactTime(message.sentAt)}`;
   }
   if (isFailedMessage(message)) {
-    return `鍙戦€佸け璐ユ椂闂?${formatExactTime(message.updatedAt ?? message.sentAt)}`;
+    return `发送失败时间${formatExactTime(message.updatedAt ?? message.sentAt)}`;
   }
   if (message.status === "queued") {
-    return `姝ｅ湪閫氳繃 ${channel} 鍙戦€?`;
+    return `正在通过 ${channel} 发送`;
   }
   const successTime = message.deliveredAt ?? message.sentAt;
-  return `鍙戦€佹垚鍔熸椂闂?${formatExactTime(successTime)}`;
+  return `发送成功时间${formatExactTime(successTime)}`;
 }
 
 function messageFailureReason(message: Message) {
-  return message.failedReason ?? message.providerErrorMessage ?? "鍙戦€佸け璐?";
+  return message.failedReason ?? message.providerErrorMessage ?? "发送失败";
 }
 
 export default function Page() {
@@ -257,13 +257,13 @@ export default function Page() {
     setLoading(true);
     setError("");
     loadConversations(activeChannel)
-      .catch((err) => setError(err instanceof Error ? err.message : "鍔犺浇澶辫触"))
+      .catch((err) => setError(err instanceof Error ? err.message : "加载失败"))
       .finally(() => setLoading(false));
   }, [activeChannel, loadConversations]);
 
   useEffect(() => {
     if (!activeConversationId) return;
-    loadDetail(activeConversationId).catch((err) => setError(err instanceof Error ? err.message : "鍔犺浇璇︽儏澶辫触"));
+    loadDetail(activeConversationId).catch((err) => setError(err instanceof Error ? err.message : "加载详情失败"));
   }, [activeConversationId, loadDetail]);
   useEffect(() => {
     const socket = io(SOCKET_URL, { transports: ["websocket", "polling"] });
@@ -313,7 +313,7 @@ export default function Page() {
     suggestedReply: aiSuggestion.suggestedReply ?? "",
     confidence: aiSuggestion.confidence,
   } : null;
-  const aiScore = currentAiReply?.suggestedReply ? `${Math.round((currentAiReply.confidence ?? 0) * 100)}%` : "No score";
+  const aiScore = currentAiReply?.suggestedReply ? `${Math.round((currentAiReply.confidence ?? 0) * 100)}%` : "暂无评分";
 
   function clearUnreadConversation(conversationId: string) {
     setConversations((current) =>
@@ -389,7 +389,7 @@ export default function Page() {
           learning_sample: true,
         }),
       });
-      if (!response.ok) throw new Error(`鍙戦€佸け璐?${response.status}`);
+      if (!response.ok) throw new Error(`发送失败${response.status}`);
       const result = (await response.json().catch(() => ({}))) as { failedReason?: string };
       if (result.failedReason) setComposerStatus(result.failedReason);
       await loadDetail(selected.id);
@@ -397,7 +397,7 @@ export default function Page() {
     } catch (err) {
       setDraft(text);
       setActiveAiLogId(aiLogId);
-      setComposerStatus(err instanceof Error ? err.message : "鍙戦€佸け璐ワ紝璇烽噸璇?");
+      setComposerStatus(err instanceof Error ? err.message : "发送失败，请重试");
     } finally {
       setSending(false);
     }
@@ -416,14 +416,14 @@ export default function Page() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
-      if (!response.ok) throw new Error(`AI鐢熸垚澶辫触 ${response.status}`);
+      if (!response.ok) throw new Error(`AI生成失败 ${response.status}`);
       const result = (await response.json()) as AiGeneratedReply;
       const suggestedReply = result.suggestedReply ?? "";
       setAiGeneratedReply(result);
       setDraft(suggestedReply);
       setActiveAiLogId(result.id ?? null);
     } catch (err) {
-      setComposerStatus(err instanceof Error ? err.message : "AI鐢熸垚澶辫触");
+      setComposerStatus(err instanceof Error ? err.message : "AI生成失败");
     } finally {
       setAiGenerating(false);
     }
@@ -441,13 +441,13 @@ export default function Page() {
     const latestInbound = [...messages]
       .reverse()
       .find((item) => item.direction === "inbound" && messageText(item) && new Date(item.sentAt).getTime() <= messageTime);
-    setMessageSaveStatus(message.id, "姝ｅ湪淇濆瓨AI鏁欐潗...");
+    setMessageSaveStatus(message.id, "正在保存为AI教材...");
     try {
       const response = await fetch(`${API_BASE}/ai/training-materials`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: `${channelLabel(selected.channel)} ${selected.customer.displayName ?? selected.customer.primaryPhone ?? "瀹㈡埛"} 鏁欐潗`,
+          title: `${channelLabel(selected.channel)} ${selected.customer.displayName ?? selected.customer.primaryPhone ?? "客户"} 教材`,
           question: latestInbound ? messageText(latestInbound) : "General customer question",
           answer,
           language: aiGeneratedReply?.detectedLanguage ?? "unknown",
@@ -459,31 +459,31 @@ export default function Page() {
           metadata: { savedFrom: "desktop_sent_message", customerMessageId: latestInbound?.id },
         }),
       });
-      if (!response.ok) throw new Error(`淇濆瓨澶辫触 ${response.status}`);
+      if (!response.ok) throw new Error(`保存失败 ${response.status}`);
       await response.json().catch(() => undefined);
-      setMessageSaveStatus(message.id, "宸蹭繚瀛樹负AI鏁欐潗");
+      setMessageSaveStatus(message.id, "已保存为AI教材");
       await loadTrainingMaterials();
     } catch (err) {
-      setMessageSaveStatus(message.id, err instanceof Error ? err.message : "淇濆瓨澶辫触");
+      setMessageSaveStatus(message.id, err instanceof Error ? err.message : "保存失败");
     }
   }
 
   async function retryMessage(message: Message) {
     if (!selected || !isFailedMessage(message)) return;
-    setComposerStatus("姝ｅ湪閲嶆柊鍙戦€?..");
+    setComposerStatus("正在重新发送...");
     try {
       const response = await fetch(`${API_BASE}/messages/${message.id}/retry`, { method: "POST" });
-      if (!response.ok) throw new Error(`閲嶆柊鍙戦€佸け璐?${response.status}`);
+      if (!response.ok) throw new Error(`重新发送失败 ${response.status}`);
       const result = (await response.json().catch(() => ({}))) as { failedReason?: string; message?: Message };
       if (result.failedReason) {
         setComposerStatus(result.failedReason);
       } else {
-        setComposerStatus("宸查噸鏂板彂閫?");
+        setComposerStatus("已重新发送");
       }
       await loadDetail(selected.id);
       await loadConversations(activeChannel);
     } catch (err) {
-      setComposerStatus(err instanceof Error ? err.message : "閲嶆柊鍙戦€佸け璐?");
+      setComposerStatus(err instanceof Error ? err.message : "重新发送失败");
     }
   }
 
@@ -491,7 +491,7 @@ export default function Page() {
     setTrainingLoading(true);
     try {
       const response = await fetch(`${API_BASE}/ai/training-materials`, { cache: "no-store" });
-      if (!response.ok) throw new Error(`AI鏁欐潗鍔犺浇澶辫触 ${response.status}`);
+      if (!response.ok) throw new Error(`AI教材加载失败 ${response.status}`);
       setTrainingMaterials((await response.json()) as AiTrainingMaterial[]);
     } finally {
       setTrainingLoading(false);
@@ -499,19 +499,19 @@ export default function Page() {
   }
 
   async function replayHistoricalLearning() {
-    setReplayStatus("姝ｅ湪鍥炴斁鍘嗗彶娑堟伅...");
+    setReplayStatus("正在回放历史消息...");
     try {
       const response = await fetch(`${API_BASE}/ai/history/replay`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ limit: 25 }),
       });
-      if (!response.ok) throw new Error(`鍥炴斁澶辫触 ${response.status}`);
+      if (!response.ok) throw new Error(`回放失败 ${response.status}`);
       const result = (await response.json()) as { processed?: number; saved?: number; skipped?: number; totalCandidates?: number };
-      setReplayStatus(`宸插 ${result.processed ?? 0} 鏉℃秷鎭洖鏀堕€掑锛屾柊澧? ${result.saved ?? 0} 鏉℃暀鏉愶紝璺宠繃 ${result.skipped ?? 0} 鏉?`);
+      setReplayStatus(`已处理 ${result.processed ?? 0} 条消息，新增 ${result.saved ?? 0} 条教材，跳过 ${result.skipped ?? 0} 条。`);
       await loadTrainingMaterials();
     } catch (err) {
-      setReplayStatus(err instanceof Error ? err.message : "鍥炴斁澶辫触");
+      setReplayStatus(err instanceof Error ? err.message : "回放失败");
     }
   }
 
@@ -525,7 +525,7 @@ export default function Page() {
 
   async function updateTrainingMaterial(material: AiTrainingMaterial, patch?: Partial<AiTrainingMaterial>) {
     const next = { ...material, ...patch };
-    setMaterialStatus(material.id, "姝ｅ湪淇濆瓨...");
+    setMaterialStatus(material.id, "正在保存...");
     try {
       const response = await fetch(`${API_BASE}/ai/training-materials/${material.id}`, {
         method: "PATCH",
@@ -539,23 +539,23 @@ export default function Page() {
           channel: next.channel ?? null,
         }),
       });
-      if (!response.ok) throw new Error(`淇濆瓨澶辫触 ${response.status}`);
+      if (!response.ok) throw new Error(`保存失败 ${response.status}`);
       const result = (await response.json()) as { material: AiTrainingMaterial };
       setTrainingMaterials((current) => current.map((item) => item.id === material.id ? result.material : item));
-      setMaterialStatus(material.id, "宸蹭繚瀛?");
+      setMaterialStatus(material.id, "已保存");
     } catch (err) {
-      setMaterialStatus(material.id, err instanceof Error ? err.message : "淇濆瓨澶辫触");
+      setMaterialStatus(material.id, err instanceof Error ? err.message : "保存失败");
     }
   }
 
   async function deleteTrainingMaterial(material: AiTrainingMaterial) {
-      setMaterialStatus(material.id, "姝ｅ湪鍒犻櫎...");
+      setMaterialStatus(material.id, "正在删除...");
     try {
       const response = await fetch(`${API_BASE}/ai/training-materials/${material.id}`, { method: "DELETE" });
-      if (!response.ok) throw new Error(`鍒犻櫎澶辫触 ${response.status}`);
+      if (!response.ok) throw new Error(`删除失败 ${response.status}`);
       setTrainingMaterials((current) => current.filter((item) => item.id !== material.id));
     } catch (err) {
-      setMaterialStatus(material.id, err instanceof Error ? err.message : "鍒犻櫎澶辫触");
+      setMaterialStatus(material.id, err instanceof Error ? err.message : "删除失败");
     }
   }
 
@@ -590,16 +590,16 @@ export default function Page() {
     if (!file) return;
     const payload = new FormData();
     payload.append("file", file);
-    setComposerStatus("姝ｅ湪涓婁紶闄勪欢...");
+    setComposerStatus("正在上传附件...");
     const response = await fetch(`${API_BASE}/files/upload`, {
       method: "POST",
       body: payload,
     }).catch(() => null);
     if (!response?.ok) {
-      setComposerStatus("闄勪欢鍔熻兘灏氭湭閰嶇疆鏂囦欢瀛樺偍锛涜鍏堢敤鏂囧瓧鍙戦€侊紝鏂囦欢瀛樺偍鎺ュ叆鍚庡啀鍚敤銆?");
+      setComposerStatus("附件功能暂未配置文件存储，请先用文字发送，文件存储接入后再启用。");
       return;
     }
-    setComposerStatus("闄勪欢宸蹭笂浼狅紝鍙互鍙戦€佺粰瀹㈡埛");
+    setComposerStatus("附件已上传，可以发送给客户");
   }
 
   function updateSoundSettings(next: NotificationSoundSettings) {
@@ -610,7 +610,7 @@ export default function Page() {
   return (
     <main className="shell">
       <aside className="rail">
-        <button className="brand brandButton" onClick={() => setWorkspace("inbox")} title="杩斿洖瀹㈡埛姹?">CF</button>
+        <button className="brand brandButton" onClick={() => setWorkspace("inbox")} title="返回客户池">CF</button>
         {channels.map((item) => {
           const Icon = item.icon;
           return (
@@ -629,7 +629,7 @@ export default function Page() {
             </button>
           );
         })}
-        <button className={workspace === "aiTraining" ? "railButton bottom active" : "railButton bottom"} title="AI璁粌椤甸潰" onClick={() => {
+        <button className={workspace === "aiTraining" ? "railButton bottom active" : "railButton bottom"} title="AI训练页面" onClick={() => {
           setWorkspace("aiTraining");
           void loadTrainingMaterials();
         }}>
@@ -641,19 +641,19 @@ export default function Page() {
         <section className="aiTrainingPage">
           <header className="trainingHeader">
             <div>
-              <h1>AI璁粌涓撶敤椤甸潰</h1>
-              <p>鎶婁綘璁ゅ彲鐨勫洖澶嶄繚瀛樻垚鏁欐潗锛孉I 涓嬫浼氫紭鍏堝涔犲苟鍦ㄩ€傚悎鐨勫璇濅腑璋冪敤銆?</p>
+              <h1>AI训练专用页面</h1>
+              <p>把你认可的回复保存成教材，AI 下次会优先学习并在合适的对话中调用。</p>
             </div>
             <div className="trainingHeaderActions">
-              <button onClick={() => void replayHistoricalLearning()}>鍥炴斁鍘嗗彶鍔犲</button>
-              <button onClick={() => setWorkspace("inbox")}>杩斿洖瀹㈡埛姹?</button>
+              <button onClick={() => void replayHistoricalLearning()}>回放历史学习</button>
+              <button onClick={() => setWorkspace("inbox")}>返回客户池</button>
             </div>
           </header>
           {replayStatus && <div className="trainingReplayStatus">{replayStatus}</div>}
           <div className="trainingGrid">
             <section className="trainingPanel">
-              <h2>宸蹭繚瀛楢I鏁欐潗</h2>
-              <p className="trainingHint">{trainingLoading ? "姝ｅ湪鍔犺浇..." : `${trainingMaterials.length} 鏉℃暀鏉?`}</p>
+              <h2>已保存的AI教材</h2>
+              <p className="trainingHint">{trainingLoading ? "正在加载..." : `${trainingMaterials.length} 条教材`}</p>
               <div className="trainingMaterialList">
                 {trainingMaterials.map((material) => (
                   <article className="trainingMaterialCard" key={material.id}>
@@ -661,16 +661,16 @@ export default function Page() {
                       <input
                         value={material.title}
                         onChange={(event) => setMaterialDraft(material.id, { title: event.target.value })}
-                        aria-label="鏁欐潗鏍囬"
+                        aria-label="教材标题"
                       />
                     </div>
-                    <label>瀹㈡埛闂</label>
+                    <label>客户问题</label>
                     <textarea
                       value={material.question}
                       onChange={(event) => setMaterialDraft(material.id, { question: event.target.value })}
                       rows={3}
                     />
-                    <label>鏍囧噯鍥炲</label>
+                    <label>标准回复</label>
                     <textarea
                       value={material.answer}
                       onChange={(event) => setMaterialDraft(material.id, { answer: event.target.value })}
@@ -680,51 +680,51 @@ export default function Page() {
                       <input
                         value={material.language}
                         onChange={(event) => setMaterialDraft(material.id, { language: event.target.value })}
-                        aria-label="璇█"
+                        aria-label="语言"
                       />
                       <input
                         value={material.intent}
                         onChange={(event) => setMaterialDraft(material.id, { intent: event.target.value })}
-                        aria-label="鎰忓浘"
+                        aria-label="意图"
                       />
                       <select
                         value={material.channel ?? ""}
                         onChange={(event) => setMaterialDraft(material.id, { channel: event.target.value || null })}
-                        aria-label="娓犻亾"
+                        aria-label="渠道"
                       >
-                        <option value="">鍏ㄩ儴娓犻亾</option>
+                        <option value="">全部渠道</option>
                         <option value="messenger">Messenger</option>
                         <option value="whatsapp">WhatsApp</option>
                         <option value="sms">SMS</option>
                         <option value="instagram">Instagram</option>
                         <option value="email">Email</option>
-                        <option value="website_chat">缃戠珯鑱婂ぉ</option>
+                        <option value="website_chat">网站聊天</option>
                       </select>
                     </div>
-                    <small>{material.channel ?? "鍏ㄩ儴娓犻亾"} 路 璋冪敤 {material.usageCount} 娆?</small>
+                    <small>{material.channel ?? "全部渠道"} · 调用 {material.usageCount} 次</small>
                     <div className="trainingMaterialActions">
-                      <button onClick={() => void updateTrainingMaterial(material)}>淇濆瓨淇敼</button>
-                      <button className="danger" onClick={() => void deleteTrainingMaterial(material)}>鍒犻櫎</button>
+                      <button onClick={() => void updateTrainingMaterial(material)}>保存修改</button>
+                      <button className="danger" onClick={() => void deleteTrainingMaterial(material)}>删除</button>
                       {trainingStatus[material.id] && <span>{trainingStatus[material.id]}</span>}
                     </div>
                   </article>
                 ))}
-                {!trainingMaterials.length && !trainingLoading && <div className="emptyTraining">杩樻病鏈夋暀鏉愩€傚厛鍦ㄨ亰澶╂閲岃 AI 鐢熸垚绛斿锛屽啀鐐光€滀繚瀛樹负AI鏁欐潗鈥濄€?</div>}
+                {!trainingMaterials.length && !trainingLoading && <div className="emptyTraining">还没有教材。先在聊天框里让 AI 生成回复，再点“保存为AI教材”。</div>}
               </div>
             </section>
             <section className="trainingPanel">
-              <h2>鏂版秷鎭０闊宠缃?</h2>
-                <p className="trainingHint">绯荤粺鏀跺埌瀹㈡埛鏂版秷鎭椂鎾斁锛屽彲鍦ㄨ繖閲岃皟澹伴煶銆?</p>
+              <h2>消息提醒设置</h2>
+                <p className="trainingHint">系统收到客户新消息时播放提示音，可在这里调整音量和音效。</p>
               <label className="soundToggle">
                 <input
                   type="checkbox"
                   checked={soundSettings.enabled}
                   onChange={(event) => updateSoundSettings({ ...soundSettings, enabled: event.target.checked })}
                 />
-                寮€鍚０闊虫彁閱?
+                开启声音提醒
               </label>
               <label className="soundControl">
-                <span>闊抽噺 {Math.round(soundSettings.volume * 100)}%</span>
+                <span>音量 {Math.round(soundSettings.volume * 100)}%</span>
                 <input
                   type="range"
                   min="0"
@@ -734,7 +734,7 @@ export default function Page() {
                 />
               </label>
               <label className="soundControl">
-                <span>鎻愮ず闊?</span>
+                <span>提示音</span>
                 <select
                   value={soundSettings.tone}
                   onChange={(event) => updateSoundSettings({ ...soundSettings, tone: event.target.value as NotificationSoundTone })}
@@ -744,7 +744,7 @@ export default function Page() {
               </label>
               <button className="soundTestButton" onClick={() => playNewMessageSound({ force: true, settings: soundSettings })}>
                 <Volume2 size={17} />
-                娴嬭瘯澹伴煶
+                测试声音
               </button>
             </section>
           </div>
@@ -755,16 +755,16 @@ export default function Page() {
       <section className="listPane">
         <header className="paneHeader">
           <div>
-            <h1>{activeChannel === "whatsapp" ? "WhatsApp 瀹㈡埛" : "瀹㈡埛姹?"}</h1>
-            <p>{loading ? "姝ｅ湪鍚屾..." : `${conversations.length} 涓細璇?`}</p>
+            <h1>{activeChannel === "whatsapp" ? "WhatsApp 客户" : "客户池"}</h1>
+            <p>{loading ? "正在同步..." : `${conversations.length} 个会话`}</p>
           </div>
-          <button className="iconButton" title="绛涢€?">
+          <button className="iconButton" title="筛选">
             <Filter size={18} />
           </button>
         </header>
         <label className="search">
           <Search size={16} />
-          <input placeholder="鎼滅储瀹㈡埛銆佺數璇濄€侀偖绠?" />
+          <input placeholder="搜索客户、电话、邮箱" />
         </label>
         {error && <div className="statusLine">{error}</div>}
         <div className="conversationList">
@@ -773,7 +773,7 @@ export default function Page() {
               conversation.customer.displayName ??
               conversation.customer.primaryPhone ??
               conversation.customer.primaryEmail ??
-              "鏂板鎴?";
+              "新客户";
             return (
               <button
                 key={conversation.id}
@@ -792,7 +792,7 @@ export default function Page() {
                   </div>
                   <div className="line last">
                     <small>
-                      {channelLabel(conversation.channel)} 路 {lastMessageText(conversation)}
+                      {channelLabel(conversation.channel)} · {lastMessageText(conversation)}
                     </small>
                     {conversation.unreadCount > 0 && <b>{conversation.unreadCount}</b>}
                   </div>
@@ -815,9 +815,9 @@ export default function Page() {
                 </div>
               )}
               <div>
-                <h2>{selected.customer.displayName ?? selected.customer.primaryPhone ?? "鏂板鎴?"}</h2>
+                <h2>{selected.customer.displayName ?? selected.customer.primaryPhone ?? "新客户"}</h2>
                 <p>
-                  {channelLabel(selected.channel)} 路 鏈€杩戜簰鍔?{formatTime(selected.lastMessageAt)}
+                  {channelLabel(selected.channel)} · 最近互动{formatTime(selected.lastMessageAt)}
                 </p>
               </div>
             </header>
@@ -827,19 +827,19 @@ export default function Page() {
                   {messageText(message) && <p>{messageText(message)}</p>}
                   {message.attachments?.map((attachment) => (
                     <a key={attachment.id} className="attachment" href={attachment.url} target="_blank" rel="noreferrer">
-                      {attachment.type === "image" ? "鏌ョ湅鍥剧墖" : attachment.type === "audio" ? "鎾斁璇煶" : attachment.fileName ?? "鎵撳紑闄勪欢"}
+                      {attachment.type === "image" ? "查看图片" : attachment.type === "audio" ? "播放语音" : attachment.fileName ?? "打开附件"}
                     </a>
                   ))}
                   <div className="messageStatusLine">
                     <span>{messageStatusText(message)}</span>
                     {isFailedMessage(message) && (
-                      <button onClick={() => void retryMessage(message)}>鐐瑰嚮鍐嶆鍙戦€?</button>
+                      <button onClick={() => void retryMessage(message)}>点击再次发送</button>
                     )}
                   </div>
                   {isFailedMessage(message) && <small className="messageFailureReason">{messageFailureReason(message)}</small>}
                   {message.direction === "outbound" && messageText(message).trim() && (
                     <div className="sentReplyActions">
-                      <button onClick={() => void saveMessageAsAiMaterial(message)}>淇濆瓨涓篈I鏁欐潗</button>
+                      <button onClick={() => void saveMessageAsAiMaterial(message)}>保存为AI教材</button>
                       {replySaveStatus[message.id] && <small>{replySaveStatus[message.id]}</small>}
                     </div>
                   )}
@@ -848,13 +848,13 @@ export default function Page() {
             </div>
             <footer className="composer">
               <div className="composerTools">
-                <button className="composerToolBtn" onClick={() => setAttachmentOpen(true)} aria-label="娣诲姞闄勪欢">
+                <button className="composerToolBtn" onClick={() => setAttachmentOpen(true)} aria-label="添加附件">
                   <Paperclip size={18} />
-                  娣诲姞闄勪欢
+                  添加附件
                 </button>
-                  <button className={currentAiReply?.suggestedReply ? "composerToolBtn active" : "composerToolBtn"} onClick={useAiSuggestion} aria-label="浣跨敤 AI 鐢熸垚鍥炲" disabled={aiGenerating}>
+                  <button className={currentAiReply?.suggestedReply ? "composerToolBtn active" : "composerToolBtn"} onClick={useAiSuggestion} aria-label="使用 AI 生成回复" disabled={aiGenerating}>
                     <Sparkles size={18} />
-                    {aiGenerating ? "AI鐢熸垚涓?" : "AI"}
+                    {aiGenerating ? "AI生成中" : "AI"}
                     <span>{aiScore}</span>
                   </button>
                 <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(event) => void uploadPickedFile(event.target.files?.[0])} />
@@ -864,82 +864,82 @@ export default function Page() {
               <div className="desktopComposer">
                   <textarea
                     ref={textareaRef}
-                    placeholder="杈撳叆鍥炲锛學hatsApp 24 灏忔椂绐楀彛澶栭渶瑕佹ā鏉挎秷鎭?"
+                    placeholder="输入回复，WhatsApp 24 小时窗口外需要模板消息。"
                     value={draft}
                     onChange={(event) => setDraft(event.target.value)}
                     onKeyDown={onKeyDown}
                     onPaste={onPaste}
                     rows={1}
                   />
-                <button className="sendButton" title="鍙戦€?" onClick={sendMessage} disabled={!draft.trim() || sending}>
+                <button className="sendButton" title="发送" onClick={sendMessage} disabled={!draft.trim() || sending}>
                   <Send size={24} />
                 </button>
               </div>
               {attachmentOpen && (
                 <div className="desktopAttachmentMenu">
                   <div className="desktopAttachmentHeader">
-                    <strong>娣诲姞闄勪欢</strong>
-                    <button className="iconButton" onClick={() => setAttachmentOpen(false)} aria-label="鍏抽棴">
+                    <strong>添加附件</strong>
+                    <button className="iconButton" onClick={() => setAttachmentOpen(false)} aria-label="关闭">
                       <X size={18} />
                     </button>
                   </div>
                   <button onClick={() => { imageInputRef.current?.click(); setAttachmentOpen(false); }}>
                     <ImageIcon size={18} />
-                    鍥剧墖
-                    <span>閫夋嫨浜у搧鍥俱€佺幇鍦哄浘</span>
+                    图片
+                    <span>选择产品图、现场图</span>
                   </button>
                   <button onClick={() => { fileInputRef.current?.setAttribute("accept", "audio/*"); fileInputRef.current?.click(); setAttachmentOpen(false); }}>
                     <Mic size={18} />
-                    闊抽
-                    <span>璇煶鎴栧綍闊虫枃浠?</span>
+                    音频
+                    <span>语音或录音文件</span>
                   </button>
                   <button onClick={() => { fileInputRef.current?.setAttribute("accept", "video/*"); fileInputRef.current?.click(); setAttachmentOpen(false); }}>
                     <Video size={18} />
-                    瑙嗛
-                    <span>瀹㈡埛鐜板満瑙嗛</span>
+                    视频
+                    <span>客户现场视频</span>
                   </button>
                   <button onClick={() => { fileInputRef.current?.removeAttribute("accept"); fileInputRef.current?.click(); setAttachmentOpen(false); }}>
                     <FileText size={18} />
-                    鏂囦欢
-                    <span>PDF銆乄ord銆丒xcel 绛?</span>
+                    文件
+                    <span>PDF、Word、Excel 等</span>
                   </button>
                 </div>
               )}
             </footer>
           </>
         ) : (
-          <div className="emptyState">鏆傛棤浼氳瘽銆俉hatsApp 瀹㈡埛鍙戞潵娑堟伅鍚庝細鑷姩杩涘叆杩欓噷銆?</div>
+          <div className="emptyState">暂无会话。WhatsApp 客户发来消息后会自动进入这里。</div>
         )}
       </section>
 
       <aside className="detailPane">
         <header className="paneHeader">
           <div>
-            <h2>瀹㈡埛璧勬枡</h2>
+            <h2>客户资料</h2>
             <p>Customer overview</p>
           </div>
           <UserRound size={20} />
         </header>
         <section className="detailBlock">
-          <label>瀹㈡埛鏍囩</label>
+          <label>客户标签</label>
           <div className="tag">
             <Tag size={14} />
-            {selected?.customer.tags?.map((item) => item.tag.name).join(", ") || "鏈垎绫诲鎴?"}
+            {selected?.customer.tags?.map((item) => item.tag.name).join(", ") || "未分类客户"}
           </div>
         </section>
         <section className="detailBlock">
-          <label>娓犻亾韬唤</label>
+          <label>渠道身份</label>
           {selected?.customer.identities?.map((identity) => (
             <div className="identity" key={identity.id}>
               <CheckCircle2 size={16} />
               {channelLabel(identity.channel)} {identity.phone || identity.email || identity.displayName || identity.externalId}
             </div>
-          )) ?? <div className="identity">鏆傛棤韬唤</div>}
+          )) ?? <div className="identity">暂无身份</div>}
         </section>
         <section className="detailBlock">
-          <label>鑱旂郴淇℃伅</label>
-          <div className="identity"><Phone size={16} />{selected?.customer.primaryPhone || "鏃犳墜鏈哄彿"}</div>
-          <div className="identity"><Mail size={16} />{selected?.customer.primaryEmail || "鏃犻偖绠?"}</div>
+          <label>联系信息</label>
+          <div className="identity"><Phone size={16} />{selected?.customer.primaryPhone || "无手机号"}</div>
+          <div className="identity"><Mail size={16} />{selected?.customer.primaryEmail || "无邮箱"}</div>
         </section>
       </aside>
       </>
@@ -947,4 +947,9 @@ export default function Page() {
     </main>
   );
 }
+
+
+
+
+
 
