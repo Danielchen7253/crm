@@ -211,6 +211,7 @@ export default function Page() {
   const [trainingMaterials, setTrainingMaterials] = useState<AiTrainingMaterial[]>([]);
   const [trainingLoading, setTrainingLoading] = useState(false);
   const [trainingStatus, setTrainingStatus] = useState<Record<string, string>>({});
+  const [replayStatus, setReplayStatus] = useState("");
   const [attachmentOpen, setAttachmentOpen] = useState(false);
   const [soundSettings, setSoundSettings] = useState<NotificationSoundSettings>({
     enabled: true,
@@ -497,6 +498,23 @@ export default function Page() {
     }
   }
 
+  async function replayHistoricalLearning() {
+    setReplayStatus("姝ｅ湪鍥炴斁鍘嗗彶娑堟伅...");
+    try {
+      const response = await fetch(`${API_BASE}/ai/history/replay`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ limit: 25 }),
+      });
+      if (!response.ok) throw new Error(`鍥炴斁澶辫触 ${response.status}`);
+      const result = (await response.json()) as { processed?: number; saved?: number; skipped?: number; totalCandidates?: number };
+      setReplayStatus(`宸插 ${result.processed ?? 0} 鏉℃秷鎭洖鏀堕€掑锛屾柊澧? ${result.saved ?? 0} 鏉℃暀鏉愶紝璺宠繃 ${result.skipped ?? 0} 鏉?`);
+      await loadTrainingMaterials();
+    } catch (err) {
+      setReplayStatus(err instanceof Error ? err.message : "鍥炴斁澶辫触");
+    }
+  }
+
   function setMaterialDraft(id: string, patch: Partial<AiTrainingMaterial>) {
     setTrainingMaterials((current) => current.map((item) => item.id === id ? { ...item, ...patch } : item));
   }
@@ -626,8 +644,12 @@ export default function Page() {
               <h1>AI璁粌涓撶敤椤甸潰</h1>
               <p>鎶婁綘璁ゅ彲鐨勫洖澶嶄繚瀛樻垚鏁欐潗锛孉I 涓嬫浼氫紭鍏堝涔犲苟鍦ㄩ€傚悎鐨勫璇濅腑璋冪敤銆?</p>
             </div>
-            <button onClick={() => setWorkspace("inbox")}>杩斿洖瀹㈡埛姹?</button>
+            <div className="trainingHeaderActions">
+              <button onClick={() => void replayHistoricalLearning()}>鍥炴斁鍘嗗彶鍔犲</button>
+              <button onClick={() => setWorkspace("inbox")}>杩斿洖瀹㈡埛姹?</button>
+            </div>
           </header>
+          {replayStatus && <div className="trainingReplayStatus">{replayStatus}</div>}
           <div className="trainingGrid">
             <section className="trainingPanel">
               <h2>宸蹭繚瀛楢I鏁欐潗</h2>

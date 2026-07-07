@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { AiAction, Channel } from "@prisma/client";
+import { AiAction, Channel, Prisma } from "@prisma/client";
 import OpenAI from "openai";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -110,6 +110,104 @@ export class AiService {
       orderBy: { updatedAt: "desc" },
       take: 200,
     });
+  }
+
+  async replayHistoricalLearning(input?: { limit?: number; conversationId?: string; channel?: Channel }) {
+    const limit = Math.min(Math.max(Number(input?.limit) || 25, 1), 100);
+    const where: Prisma.MessageWhereInput = {
+      direction: "inbound",
+      text: { not: null },
+      ...(input?.conversationId ? { conversationId: input.conversationId } : {}),
+      ...(input?.channel ? { channel: input.channel } : {}),
+    };
+
+    const inboundMessages = await this.prisma.message.findMany({
+      where,
+      include: {
+        aiReplyLogs: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
+      },
+      orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
+      take: limit,
+    });
+
+    let processed = 0;
+    let saved = 0;
+    let skipped = 0;
+    const samples: Array<{
+      messageId: string;
+      conversationId: string;
+      question: string;
+      answer: string;
+      title: string;
+      alreadySaved: boolean;
+    }> = [];
+
+    for (const message of inboundMessages) {
+      const question = String(message.text ?? message.textContent ?? "").trim();
+      if (!question) {
+        skipped += 1;
+        continue;
+      }
+
+      const nextOutbound = await this.prisma.message.findFirst({
+        where: {
+          conversationId: message.conversationId,
+          direction: "outbound",
+          text: { not: null },
+          sentAt: { gt: message.sentAt },
+        },
+        orderBy: [{ sentAt: "asc" }, { createdAt: "asc" }],
+      });
+
+      const fallbackAnswer = String(message.aiReplyLogs?.[0]?.finalText ?? message.aiReplyLogs?.[0]?.suggestedReply ?? "").trim();
+      const answer = String(nextOutbound?.text ?? nextOutbound?.textContent ?? fallbackAnswer).trim();
+      if (!answer) {
+        skipped += 1;
+        continue;
+      }
+
+      processed += 1;
+      const language = this.detectLanguage(`${question}\n${answer}`);
+      const intent = this.inferIntent(question, answer);
+      const title = this.titleFromText(question);
+      const result = await this.saveTrainingMaterial({
+        title,
+        question,
+        answer,
+        language,
+        intent,
+        channel: message.channel,
+        conversationId: message.conversationId,
+        messageId: message.id,
+        metadata: {
+          source: "history_replay",
+          inboundMessageId: message.id,
+          outboundMessageId: nextOutbound?.id ?? null,
+        },
+      });
+
+      if (result.alreadySaved) skipped += 1;
+      else saved += 1;
+      samples.push({
+        messageId: message.id,
+        conversationId: message.conversationId,
+        question,
+        answer,
+        title,
+        alreadySaved: Boolean(result.alreadySaved),
+      });
+    }
+
+    return {
+      processed,
+      saved,
+      skipped,
+      totalCandidates: inboundMessages.length,
+      samples,
+    };
   }
 
   async saveTrainingMaterial(body: any) {
@@ -254,6 +352,25 @@ export class AiService {
 
   private keywords(text: string) {
     return [...new Set(text.toLowerCase().match(/[a-z0-9]{3,}|[\u4e00-\u9fff]{2,}/g) ?? [])].slice(0, 8);
+  }
+
+  private detectLanguage(text: string) {
+    const value = text.toLowerCase();
+    if (/[\u4e00-\u9fff]/.test(value)) return "zh";
+    if (/(hola|gracias|precio|env[ií]o|cotiz|pedido|disponibl|cuando|cu[aá]nto|necesito)/.test(value)) return "es";
+    return "en";
+  }
+
+  private inferIntent(question: string, answer: string) {
+    const text = `${question} ${answer}`.toLowerCase();
+    if (/(price|cost|quote|pricing|多少|报价|precio|cu[eé]nto)/.test(text)) return "price";
+    if (/(stock|inventory|in stock|available|有货|库存|disponible)/.test(text)) return "stock";
+    if (/(pickup|pick up|address|location|warehouse|取货|recoger)/.test(text)) return "pickup";
+    if (/(shipping|delivery|ship|物流|发货|env[ií]o|entrega)/.test(text)) return "shipping";
+    if (/(complaint|issue|problem|broken|damaged|angry|bad service|投诉|queja|problema)/.test(text)) return "complaint";
+    if (/(refund|return|money back|reembolso|devoluci[oó]n|退)/.test(text)) return "refund";
+    if (/(order|invoice|tracking|purchase|bought|pedido|orden|订单)/.test(text)) return "order";
+    return "other";
   }
 
   private titleFromText(text: string) {

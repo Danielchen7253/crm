@@ -1,4 +1,5 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post } from "@nestjs/common";
+import { Channel } from "@prisma/client";
 import { AiService } from "./ai.service";
 
 @Controller("ai")
@@ -10,6 +11,17 @@ export class AiController {
     const suggestion = await this.ai.createSuggestionForConversation(id);
     if (!suggestion) throw new BadRequestException("No customer message found for this conversation");
     return suggestion;
+  }
+
+  @Post("history/replay")
+  async replayHistoricalLearning(
+    @Body() body: { limit?: number; conversationId?: string; channel?: Channel },
+  ) {
+    return this.ai.replayHistoricalLearning({
+      limit: body?.limit,
+      conversationId: body?.conversationId,
+      channel: body?.channel,
+    });
   }
 
   @Get("training-materials")
